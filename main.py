@@ -1,5 +1,5 @@
 
-from services.portfolio_handler import PortfolioHandler
+from handlers.portfolio_handler import PortfolioHandler
 from config import PATH_ACTIVITY
 
 

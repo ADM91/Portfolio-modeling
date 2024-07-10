@@ -1,5 +1,8 @@
 
+_junk/*
 data/*
 *.venv
 *.ipynb
+*.xlsx
+*.db
 __pycache__

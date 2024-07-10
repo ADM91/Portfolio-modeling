@@ -1,7 +1,7 @@
 
 import pandas as pd
 
-from data.db_manager import DatabaseManager
+from database.access import DatabaseAccess
 from config import DENOMINATIONS, METRICS
 
 
@@ -10,8 +10,8 @@ class Asset:
         self.name = name
         self.ticker_symbol = ticker_symbol
 
-        self.db_manager = DatabaseManager()
-        self.db_manager.add_asset(ticker_symbol, name)
+        self.db_access = DatabaseAccess()
+        self.db_access.add_asset(ticker_symbol, name)
 
         # # DataFrame for logging actions
         # self.actions = pd.DataFrame(columns=['Date', 'ActionType', 'Currency', 'Amount', 'Remarks'])

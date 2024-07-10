@@ -1,6 +1,6 @@
 
-# Actions file path
-PATH_ACTIVITY = "./portfolio_activity.xlsx"
+# Activity file path
+PATH_ACTIVITY = "portfolio_activity.xlsx"
 
 # Configuration for assets and metrics
 ACCOUNTS = ['Alexander', 'AM ehf.']

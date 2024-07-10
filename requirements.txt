@@ -2,3 +2,4 @@
 streamlit==1.36.0
 yfinance==0.2.40
 pydantic==2.8.2
+sqlalchemy==2.0.31
