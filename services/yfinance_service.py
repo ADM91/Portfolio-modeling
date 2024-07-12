@@ -3,9 +3,12 @@ import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 
-class YFinanceHandler:
-    def __init__(self):
-        pass
+from database.access import DatabaseAccess
+
+
+class YFinanceService:
+    def __init__(self, db_access: DatabaseAccess):
+        self.db_access = db_access
 
     def fetch_asset_data(self, ticker: str, start_date: datetime = None, end_date: datetime = None):
         """
@@ -64,11 +67,13 @@ class YFinanceHandler:
 
 # Usage example
 if __name__ == "__main__":
-    yfhandler = YFinanceHandler()
+    
 
     from database.access import DatabaseAccess
     db_access = DatabaseAccess()
     db_access.init_db()
+
+    yfhandler = YFinanceService()
 
     ticker = 'AAPL'
     asset_name, price_data = yfhandler.fetch_asset_data(ticker)

@@ -1,6 +1,6 @@
 
 import streamlit as st
-from handlers.portfolio_handler import PortfolioHandler
+from services.portfolio_service import PortfolioHandler
 
 def main():
     st.title("Multi-Currency Asset Tracker")

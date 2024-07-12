@@ -8,7 +8,7 @@ from models.activity import Activity
 from database.access import DatabaseAccess
 
 
-class PortfolioHandler:
+class PortfolioService:
     def __init__(self, excel_path: str):
         self.excel_path = excel_path
         self.db_access = DatabaseAccess()
