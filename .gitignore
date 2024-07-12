@@ -5,4 +5,5 @@ data/*
 *.ipynb
 *.xlsx
 *.db
+.env
 __pycache__

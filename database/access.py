@@ -1,18 +1,20 @@
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
+from datetime import datetime, date
+from typing import List, Dict
+
+import yfinance as yf
 import pandas as pd
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker, Session
 
 from database.entities import Base, Asset, PriceHistory, PortfolioHolding, Portfolio, PortfolioMetric
 
 
 class DatabaseAccess:
-    def __init__(self, db_url='sqlite:///data/asset_tracker.db'):
+    def __init__(self, db_url='sqlite:///database/asset_tracker.db'):
         self.engine = create_engine(db_url)
         self.Session = sessionmaker(bind=self.engine)
-        self.init_db()  # creates tabes if they don't exist
 
     def init_db(self):
         Base.metadata.create_all(self.engine)
@@ -27,82 +29,141 @@ class DatabaseAccess:
                 session.rollback()
                 raise
 
-    def add_asset(self, ticker, name):
+    def add_asset(self, ticker: str, name: str):
         with self.session_scope() as session:
-            asset = Asset(ticker=ticker, name=name)
-            session.add(asset)
+            # Check if the asset already exists
+            existing_asset = session.execute(
+                select(Asset).where(Asset.ticker == ticker)
+            ).scalar_one_or_none()
 
-    def add_price_history(self, ticker, prices_df):
-        with self.session_scope() as session:
-            asset = session.query(Asset).filter_by(ticker=ticker).first()
-            for _, row in prices_df.iterrows():
-                price_history = PriceHistory(asset_id=asset.id, date=row.name, price=row['price'])
-                session.add(price_history)
+            if existing_asset:
+                # If the asset exists, update the name if it's different
+                if existing_asset.name != name:
+                    existing_asset.name = name
+                return existing_asset
+            else:
+                # If the asset doesn't exist, create a new one
+                new_asset = Asset(ticker=ticker, name=name)
+                session.add(new_asset)
+                session.flush()  # This will populate the id of the new asset
+                return new_asset
 
-    def get_price_history(self, ticker, start_date=None, end_date=None):
+    def get_asset(self, ticker: str):
         with self.session_scope() as session:
-            query = session.query(PriceHistory).join(Asset).filter(Asset.ticker == ticker)
+            return session.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
+
+    def add_price_history(self, ticker: str, price_history: List[Dict]):
+        with self.session_scope() as session:
+            # Get the asset within this session
+            asset = session.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
+            if not asset:
+                raise ValueError(f"Asset with ticker {ticker} not found")
+
+            # Fetch all existing dates for this asset
+            existing_dates = set(date[0] for date in session.query(PriceHistory.date)
+                                .filter(PriceHistory.asset_id == asset.id).all())
+
+            # Prepare bulk insert and update lists
+            to_insert = []
+            to_update = []
+
+            for entry in price_history:
+                date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
+                if date in existing_dates:
+                    to_update.append({
+                        'asset_id': asset.id,
+                        'date': date,
+                        'open': entry['open'],
+                        'high': entry['high'],
+                        'low': entry['low'],
+                        'close': entry['close'],
+                        'volume': entry['volume']
+                    })
+                else:
+                    to_insert.append(PriceHistory(
+                        asset_id=asset.id,
+                        date=date,
+                        open=entry['open'],
+                        high=entry['high'],
+                        low=entry['low'],
+                        close=entry['close'],
+                        volume=entry['volume']
+                    ))
+
+            # Bulk insert new entries
+            if to_insert:
+                session.bulk_save_objects(to_insert)
+
+            # Bulk update existing entries
+            if to_update:
+                session.bulk_update_mappings(PriceHistory, to_update)
+
+
+    def get_price_history(self, ticker: str, start_date: date = None, end_date: date = None):
+        with self.session_scope() as session:
+            stmt = (
+                select(PriceHistory)
+                .join(Asset)
+                .where(Asset.ticker == ticker)
+                .order_by(PriceHistory.date)
+            )
             if start_date:
-                query = query.filter(PriceHistory.date >= start_date)
+                stmt = stmt.where(PriceHistory.date >= start_date)
             if end_date:
-                query = query.filter(PriceHistory.date <= end_date)
-            result = query.order_by(PriceHistory.date).all()
-            return pd.DataFrame([(ph.date, ph.price) for ph in result], columns=['date', 'price']).set_index('date')
+                stmt = stmt.where(PriceHistory.date <= end_date)
+            
+            result = session.execute(stmt).scalars().all()
+            return pd.DataFrame([
+                {
+                    'date': ph.date,
+                    'open': ph.open,
+                    'high': ph.high,
+                    'low': ph.low,
+                    'close': ph.close,
+                    'volume': ph.volume
+                } for ph in result
+            ]).set_index('date')
 
-    def update_portfolio_holdings(self, portfolio_id, holdings_df):
-        with self.session_scope() as session:
-            for _, row in holdings_df.iterrows():
-                holding = PortfolioHolding(portfolio_id=portfolio_id, asset_id=row['asset_id'], 
-                                           date=row['date'], quantity=row['quantity'])
-                session.add(holding)
+    def fetch_and_store_yfinance_data(self, ticker: str, start_date: datetime = None, end_date: datetime = None):
+        if not start_date:
+            start_date = datetime.now() - pd.Timedelta(days=5*365)  # 5 years ago
+        if not end_date:
+            end_date = datetime.now()
 
-    def update_portfolio_metrics(self, portfolio_id, metrics_df):
-        with self.session_scope() as session:
-            for date, row in metrics_df.iterrows():
-                metric = PortfolioMetric(portfolio_id=portfolio_id, date=date, 
-                                         total_value=row['total_value'],
-                                         daily_return=row['daily_return'],
-                                         cumulative_return=row['cumulative_return'],
-                                         volatility=row['volatility'],
-                                         sharpe_ratio=row['sharpe_ratio'])
-                session.add(metric)
-
-    def get_portfolio_holdings(self, portfolio_id, start_date=None, end_date=None):
-        with self.session_scope() as session:
-            query = session.query(PortfolioHolding).filter_by(portfolio_id=portfolio_id)
-            if start_date:
-                query = query.filter(PortfolioHolding.date >= start_date)
-            if end_date:
-                query = query.filter(PortfolioHolding.date <= end_date)
-            result = query.order_by(PortfolioHolding.date).all()
-            return pd.DataFrame([(ph.date, ph.asset_id, ph.quantity) for ph in result], 
-                                columns=['date', 'asset_id', 'quantity'])
-
-    def get_portfolio_metrics(self, portfolio_id, start_date=None, end_date=None):
-        with self.session_scope() as session:
-            query = session.query(PortfolioMetric).filter_by(portfolio_id=portfolio_id)
-            if start_date:
-                query = query.filter(PortfolioMetric.date >= start_date)
-            if end_date:
-                query = query.filter(PortfolioMetric.date <= end_date)
-            result = query.order_by(PortfolioMetric.date).all()
-            return pd.DataFrame([(pm.date, pm.total_value, pm.daily_return, pm.cumulative_return, 
-                                  pm.volatility, pm.sharpe_ratio) for pm in result],
-                                columns=['date', 'total_value', 'daily_return', 'cumulative_return', 
-                                         'volatility', 'sharpe_ratio']).set_index('date')
-
-    def get_asset_prices(self, asset_ids, start_date=None, end_date=None):
-        with self.session_scope() as session:
-            query = session.query(PriceHistory).filter(PriceHistory.asset_id.in_(asset_ids))
-            if start_date:
-                query = query.filter(PriceHistory.date >= start_date)
-            if end_date:
-                query = query.filter(PriceHistory.date <= end_date)
-            result = query.order_by(PriceHistory.date).all()
-            return pd.DataFrame([(ph.asset_id, ph.date, ph.price) for ph in result],
-                                columns=['asset_id', 'date', 'price'])
+        yf_ticker = yf.Ticker(ticker)
         
+        # Fetch asset info
+        info = yf_ticker.info
+        asset_name = info.get('longName', info.get('shortName', ticker))
+        self.add_asset(ticker, asset_name)
 
+        # Fetch price data
+        price_data = yf_ticker.history(start=start_date, end=end_date)
+        self.add_price_history(ticker, price_data)
+
+        print(f"Added data for {ticker}")
+
+    def get_transformed_price_history(self, ticker: str, start_date: date = None, end_date: date = None):
+        df = self.get_price_history(ticker, start_date, end_date)
+        
+        # Calculate 20-day moving average
+        df['MA20'] = df['close'].rolling(window=20).mean()
+
+        # Calculate daily returns
+        df['daily_return'] = df['close'].pct_change()
+
+        return df
+
+# Usage example
 if __name__ == "__main__":
+    db_access = DatabaseAccess()
+    db_access.init_db()
 
-    DatabaseAccess()
+    # Fetch and store data for multiple tickers
+    tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN']
+    for ticker in tickers:
+        db_access.fetch_and_store_yfinance_data(ticker)
+
+    # Retrieve and transform data for AAPL
+    aapl_data = db_access.get_transformed_price_history('AAPL')
+    print(aapl_data.tail())

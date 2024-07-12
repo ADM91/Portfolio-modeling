@@ -19,7 +19,11 @@ class PriceHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
     date: Mapped[date]
-    price: Mapped[float]
+    open: Mapped[float]
+    high: Mapped[float]
+    low: Mapped[float]
+    close: Mapped[float]
+    volume: Mapped[int]
     asset: Mapped["Asset"] = relationship()
 
 class Portfolio(Base):
