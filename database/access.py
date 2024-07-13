@@ -1,12 +1,10 @@
 
 from contextlib import contextmanager
-from datetime import datetime, date
+from datetime import datetime
 from typing import List, Dict
 
-import yfinance as yf
-import pandas as pd
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy import create_engine, select, and_
+from sqlalchemy.orm import sessionmaker
 
 from database.entities import *
 
@@ -65,9 +63,22 @@ class DatabaseAccess:
             if not asset:
                 raise ValueError(f"Asset with ticker {ticker} not found")
 
-            # Fetch all existing dates for this asset
-            existing_dates = set(date[0] for date in session.query(PriceHistory.date)
-                                .filter(PriceHistory.asset_id == asset.id).all())
+            # Get the minimum date from the input price history
+            min_date = min(entry['date'] for entry in price_history)
+
+            # Fetch existing records within the date range
+            existing_records = session.execute(
+                select(PriceHistory)
+                .where(
+                    and_(
+                        PriceHistory.asset_id == asset.id,
+                        PriceHistory.date >= min_date
+                        )
+                )
+            ).all()
+
+            # Get existing dates and ids
+            existing_dates = {record[0].date.date(): record[0].id for record in existing_records}
 
             # Prepare bulk insert and update lists
             to_insert = []
@@ -77,6 +88,7 @@ class DatabaseAccess:
                 date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
                 if date in existing_dates:
                     to_update.append({
+                        'id': existing_dates[date],
                         'asset_id': asset.id,
                         'date': date,
                         'open': entry['open'],
@@ -103,6 +115,7 @@ class DatabaseAccess:
             # Bulk update existing entries
             if to_update:
                 session.bulk_update_mappings(PriceHistory, to_update)
+
 
     def get_all_assets(self) -> List[Asset]:
         with self.session_scope() as session:
@@ -184,6 +197,53 @@ class DatabaseAccess:
     #     df['daily_return'] = df['close'].pct_change()
 
     #     return df
+
+# def add_price_history(self, ticker: str, price_history: List[Dict]):
+#         with self.session_scope() as session:
+#             # Get the asset within this session
+#             asset = session.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
+#             if not asset:
+#                 raise ValueError(f"Asset with ticker {ticker} not found")
+
+#             # Fetch all existing dates for this asset
+#             existing_dates = set(date[0].date() for date in session.query(PriceHistory.date)
+#                                 .filter(PriceHistory.asset_id == asset.id).all())
+
+#             # Prepare bulk insert and update lists
+#             to_insert = []
+#             to_update = []
+
+#             for entry in price_history:
+#                 date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
+#                 if date in existing_dates:
+#                     to_update.append({
+#                         'asset_id': asset.id,
+#                         'date': date,
+#                         'open': entry['open'],
+#                         'high': entry['high'],
+#                         'low': entry['low'],
+#                         'close': entry['close'],
+#                         'volume': entry['volume']
+#                     })
+#                 else:
+#                     to_insert.append(PriceHistory(
+#                         asset_id=asset.id,
+#                         date=date,
+#                         open=entry['open'],
+#                         high=entry['high'],
+#                         low=entry['low'],
+#                         close=entry['close'],
+#                         volume=entry['volume']
+#                     ))
+
+#             # Bulk insert new entries
+#             if to_insert:
+#                 session.bulk_save_objects(to_insert)
+
+#             # Bulk update existing entries
+#             if to_update:
+#                 session.bulk_update_mappings(PriceHistory, to_update)
+
 
 # Usage example
 if __name__ == "__main__":

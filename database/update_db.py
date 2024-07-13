@@ -27,7 +27,7 @@ def update_database():
         last_date = db_access.get_last_price_date(asset.ticker)
         
         # If we have no data, start from 5 years ago, otherwise start from the day after the last date
-        start_date = last_date + timedelta(days=1) if last_date else datetime.now() - timedelta(days=5*365)
+        start_date = last_date if last_date else datetime.now() - timedelta(days=5*365)
         end_date = datetime.now()
 
         # Only fetch data if there's a gap to fill
@@ -35,6 +35,7 @@ def update_database():
             print(f"Updating {asset.ticker} from {start_date} to {end_date}")
             
             try:
+                # Fetch asset data - close on current day represents current price
                 asset_name, price_data = yf_service.fetch_asset_data(asset.ticker, start_date, end_date)
                 
                 if not price_data.empty:
@@ -50,5 +51,6 @@ def update_database():
             print(f"{asset.ticker} is up to date")
 
 if __name__ == "__main__":
-    # initialize_database()
+    initialize_database()
     update_database()
+    print('done')

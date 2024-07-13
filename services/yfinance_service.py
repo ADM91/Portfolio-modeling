@@ -30,7 +30,7 @@ class YFinanceService:
         info = yf_ticker.info
         asset_name = info.get('longName', info.get('shortName', ticker))
         
-        # Fetch price data
+        # Fetch price history data
         price_data = yf_ticker.history(start=start_date, end=end_date)
 
         # Format price data
@@ -61,6 +61,7 @@ class YFinanceService:
         """
         price_history = price_data.reset_index()
         price_history.rename(columns={'Date': 'date', 'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close', 'Volume': 'volume'}, inplace=True)
+        price_history['date'] = price_history['date'].apply(lambda x: x.date())
         price_history = price_history.to_dict('records')
 
         return price_history
