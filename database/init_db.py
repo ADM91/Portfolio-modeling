@@ -7,7 +7,6 @@ from services.yfinance_service import YFinanceService
 from config import action_types, assets
 
 
-
 def initialize_database():
     db_access = DatabaseAccess()
     db_access.init_db()
