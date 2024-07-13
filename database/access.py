@@ -124,9 +124,9 @@ class DatabaseAccess:
             session.expunge_all()
         return assets
     
-    def get_all_currencies(self) -> List[Currency]:
+    def get_all_currencies(self) -> List[Asset]:
         with self.session_scope() as session:
-            currencies = session.query(Currency).all()
+            currencies = session.query(Asset).filter(Asset.is_currency == True).all()
             # Expunge all objects from the session
             session.expunge_all()
         return currencies

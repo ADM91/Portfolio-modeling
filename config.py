@@ -19,14 +19,10 @@ action_types = [
     {"name": "dividend"}
 ]
 
-currencies = [
-    {"ticker": "ISK=X", "code": "ISK", "name": "Icelandic krona"},
-    {"ticker": "EUR=X", "code": "EUR", "name": "Euro"},
-    {"ticker": "BTC-USD", "code": "BTC", "name": "Bitcoin"}
-]
-
 assets = [
-    {"ticker": "BTC-USD", "code": "BTC", "name": "Bitcoin"},
-    {"ticker": "ETH-USD", "code": "ETH", "name": "Ethereum"},
-    {"ticker": "MATIC-USD", "code": "MATIC", "name": "Polygon"},
+    {"ticker": "ISK=X", "code": "ISK", "name": "Icelandic krona", "is_currency": True, "is_inverted": True},
+    {"ticker": "EUR=X", "code": "EUR", "name": "Euro", "is_currency": True, "is_inverted": True},
+    {"ticker": "BTC-USD", "code": "BTC", "name": "Bitcoin", "is_currency": True, "is_inverted": False},
+    {"ticker": "ETH-USD", "code": "ETH", "name": "Ethereum", "is_currency": False, "is_inverted": False},
+    {"ticker": "MATIC-USD", "code": "MATIC", "name": "Polygon", "is_currency": False, "is_inverted": False}
 ]

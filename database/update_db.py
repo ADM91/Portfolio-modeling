@@ -2,9 +2,9 @@
 from datetime import datetime, timedelta
 
 from database.access import DatabaseAccess
-from database.entities import ActionType, Currency, Asset
+from database.entities import ActionType, Asset
 from services.yfinance_service import YFinanceService
-from config import action_types, currencies, assets
+from config import action_types, assets
 
 
 
@@ -12,7 +12,6 @@ def initialize_database():
     db_access = DatabaseAccess()
     db_access.init_db()
     db_access.insert_if_not_exists(ActionType, action_types)
-    db_access.insert_if_not_exists(Currency, currencies)
     db_access.insert_if_not_exists(Asset, assets)
 
 
@@ -38,6 +37,10 @@ def update_database():
                 # Fetch asset data - close on current day represents current price
                 asset_name, price_data = yf_service.fetch_asset_data(asset.ticker, start_date, end_date)
                 
+                # uninvert if inverted
+                if asset.is_inverted:
+                    price_data[['Open', 'High', 'Low', 'Close']] = price_data[['Open', 'High', 'Low', 'Close']].apply(lambda x: round(1/x, 6))
+
                 if not price_data.empty:
                     # Prepare and insert price history data
                     price_history = yf_service.prepare_price_history_for_db(price_data)
@@ -49,6 +52,7 @@ def update_database():
                 print(f"Error updating {asset.ticker}: {str(e)}")
         else:
             print(f"{asset.ticker} is up to date")
+
 
 if __name__ == "__main__":
     initialize_database()
