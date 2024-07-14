@@ -66,25 +66,69 @@ class YFinanceService:
 
         return price_history
 
+    def update_db_with_asset_data(self):
+        # db_access = DatabaseAccess()
+        # yf_service = YFinanceService(db_access)
+
+        asset_list = self.db_access.get_all_assets()
+
+        for asset in asset_list:
+            # Get the most recent date in the database for this asset
+            last_date = self.db_access.get_last_price_date(asset.ticker)
+            
+            # If we have no data, start from 5 years ago, otherwise start from the day after the last date
+            start_date = last_date if last_date else datetime.now() - timedelta(days=5*365)
+            end_date = datetime.now()
+
+            # Only fetch data if there's a gap to fill
+            if start_date < end_date:
+                print(f"Updating {asset.ticker} from {start_date} to {end_date}")
+                
+                try:
+                    # Fetch asset data - close on current day represents current price
+                    asset_name, price_data = self.fetch_asset_data(asset.ticker, start_date, end_date)
+                    
+                    # uninvert if inverted
+                    if asset.is_inverted:
+                        price_data[['Open', 'High', 'Low', 'Close']] = price_data[['Open', 'High', 'Low', 'Close']].apply(lambda x: round(1/x, 6))
+
+                    if not price_data.empty:
+                        # Prepare and insert price history data
+                        price_history = self.prepare_price_history_for_db(price_data)
+                        self.db_access.add_price_history(asset.ticker, price_history)
+                        print(f"Updated {asset.ticker} with {len(price_history)} new entries")
+                    else:
+                        print(f"No new data for {asset.ticker}")
+                except Exception as e:
+                    print(f"Error updating {asset.ticker}: {str(e)}")
+            else:
+                print(f"{asset.ticker} is up to date")
+
+
+
 # Usage example
 if __name__ == "__main__":
     
+    yf_service = YFinanceService(DatabaseAccess())
 
-    from database.access import DatabaseAccess
-    db_access = DatabaseAccess()
-    db_access.init_db()
+    yf_service.update_db_with_asset_data()
 
-    yfhandler = YFinanceService()
 
-    ticker = 'AAPL'
-    asset_name, price_data = yfhandler.fetch_asset_data(ticker)
+    # # from database.access import DatabaseAccess
+    # db_access = DatabaseAccess()
+    # db_access.init_db()
+
+    # yfhandler = YFinanceService()
+
+    # ticker = 'AAPL'
+    # asset_name, price_data = yfhandler.fetch_asset_data(ticker)
     
-    # Prepare and insert asset data
-    asset_data = yfhandler.prepare_asset_for_db(ticker, asset_name)
-    db_access.add_asset(**asset_data)
+    # # Prepare and insert asset data
+    # asset_data = yfhandler.prepare_asset_for_db(ticker, asset_name)
+    # db_access.add_asset(**asset_data)
     
-    # Prepare and insert price history data
-    price_history = yfhandler.prepare_price_history_for_db(price_data)
-    db_access.add_price_history(ticker, price_history)
+    # # Prepare and insert price history data
+    # price_history = yfhandler.prepare_price_history_for_db(price_data)
+    # db_access.add_price_history(ticker, price_history)
 
-    print(f"Added data for {ticker}")
+    # print(f"Added data for {ticker}")
