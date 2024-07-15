@@ -1,10 +1,7 @@
 
-from datetime import datetime, timedelta
-
 from database.access import DatabaseAccess
-from database.entities import ActionType, Asset
-from services.yfinance_service import YFinanceService
-from config import action_types, assets
+from database.entities import ActionType, Asset, Portfolio
+from config import action_types, assets, portfolios
 
 
 def initialize_database():
@@ -12,7 +9,7 @@ def initialize_database():
     db_access.init_db()
     db_access.insert_if_not_exists(ActionType, action_types)
     db_access.insert_if_not_exists(Asset, assets)
-
+    db_access.insert_if_not_exists(Portfolio, portfolios)
 
 
 if __name__ == "__main__":

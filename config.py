@@ -26,3 +26,11 @@ assets = [
     {"ticker": "ETH-USD", "code": "ETH", "name": "Ethereum", "is_currency": False, "is_inverted": False},
     {"ticker": "MATIC-USD", "code": "MATIC", "name": "Polygon", "is_currency": False, "is_inverted": False}
 ]
+
+
+portfolios = [
+    {"name": "Alexander", "owner": "Alexander"},
+    {"name": "AM ehf.", "owner": "AM ehf."},
+    {"name": "Pauline", "owner": "Pauline"},
+    {"name": "Óliver", "owner": "Óliver"},
+]

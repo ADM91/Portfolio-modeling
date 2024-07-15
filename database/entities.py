@@ -1,7 +1,9 @@
+
 from typing import Optional
 from datetime import datetime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy import String, ForeignKey, DateTime, Boolean, Float, Integer
+
 
 class Base(DeclarativeBase):
     pass
@@ -16,9 +18,17 @@ class Action(Base):
     # investment action, buy, sell, dividend (currency agnostic)
     __tablename__ = 'actions'
     id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
     action_type_id: Mapped[int] = mapped_column(ForeignKey('action_types.id'))
-    name: Mapped[str] = mapped_column(String(50))
-    implemented: Mapped[bool] = mapped_column(Boolean)
+    date: Mapped[datetime] = mapped_column(DateTime)
+    asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
+    currency_id: Mapped[int] = mapped_column(ForeignKey('assets.id')) # how do we handle dividend payments? currency = asset
+    price: Mapped[float] = mapped_column(Float)
+    quantity: Mapped[float] = mapped_column(Float)
+    fee: Mapped[float] = mapped_column(Float)
+    platform: Mapped[Optional[str]] = mapped_column(String)
+    comment: Mapped[Optional[str]] = mapped_column(String)
+    is_processed: Mapped[bool] = mapped_column(Boolean)
     action_type: Mapped[ActionType] = relationship("ActionType")
 
 class Asset(Base):

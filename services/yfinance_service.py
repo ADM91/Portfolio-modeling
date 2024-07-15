@@ -7,6 +7,9 @@ from database.access import DatabaseAccess
 
 
 class YFinanceService:
+    """
+    Class for fetching asset data from yFinance API and storing it in the database.
+    """
     def __init__(self, db_access: DatabaseAccess):
         self.db_access = db_access
 
@@ -105,30 +108,8 @@ class YFinanceService:
                 print(f"{asset.ticker} is up to date")
 
 
-
 # Usage example
 if __name__ == "__main__":
     
     yf_service = YFinanceService(DatabaseAccess())
-
     yf_service.update_db_with_asset_data()
-
-
-    # # from database.access import DatabaseAccess
-    # db_access = DatabaseAccess()
-    # db_access.init_db()
-
-    # yfhandler = YFinanceService()
-
-    # ticker = 'AAPL'
-    # asset_name, price_data = yfhandler.fetch_asset_data(ticker)
-    
-    # # Prepare and insert asset data
-    # asset_data = yfhandler.prepare_asset_for_db(ticker, asset_name)
-    # db_access.add_asset(**asset_data)
-    
-    # # Prepare and insert price history data
-    # price_history = yfhandler.prepare_price_history_for_db(price_data)
-    # db_access.add_price_history(ticker, price_history)
-
-    # print(f"Added data for {ticker}")

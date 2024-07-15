@@ -116,7 +116,6 @@ class DatabaseAccess:
             if to_update:
                 session.bulk_update_mappings(PriceHistory, to_update)
 
-
     def get_all_assets(self) -> List[Asset]:
         with self.session_scope() as session:
             assets = session.query(Asset).all()
@@ -139,122 +138,28 @@ class DatabaseAccess:
                 return last_price.date if last_price else None
             return None
         
-    # def get_asset(self, ticker: str):
-    #     with self.session_scope() as session:
-    #         return session.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
-
-    # def get_price_history(self, ticker: str, start_date: date = None, end_date: date = None):
-    #     with self.session_scope() as session:
-    #         stmt = (
-    #             select(PriceHistory)
-    #             .join(Asset)
-    #             .where(Asset.ticker == ticker)
-    #             .order_by(PriceHistory.date)
-    #         )
-    #         if start_date:
-    #             stmt = stmt.where(PriceHistory.date >= start_date)
-    #         if end_date:
-    #             stmt = stmt.where(PriceHistory.date <= end_date)
-            
-    #         result = session.execute(stmt).scalars().all()
-    #         return pd.DataFrame([
-    #             {
-    #                 'date': ph.date,
-    #                 'open': ph.open,
-    #                 'high': ph.high,
-    #                 'low': ph.low,
-    #                 'close': ph.close,
-    #                 'volume': ph.volume
-    #             } for ph in result
-    #         ]).set_index('date')
-
-    # def fetch_and_store_yfinance_data(self, ticker: str, start_date: datetime = None, end_date: datetime = None):
-    #     if not start_date:
-    #         start_date = datetime.now() - pd.Timedelta(days=5*365)  # 5 years ago
-    #     if not end_date:
-    #         end_date = datetime.now()
-
-    #     yf_ticker = yf.Ticker(ticker)
+    def get_action_type_by_name(self, name: str) -> Optional[ActionType]:
+        with self.session_scope() as session:
+            action_type = session.query(ActionType).filter(ActionType.name == name).first()
+            # Expunge all objects from the session
+            session.expunge_all()
+            return action_type
         
-    #     # Fetch asset info
-    #     info = yf_ticker.info
-    #     asset_name = info.get('longName', info.get('shortName', ticker))
-    #     self.add_asset(ticker, asset_name)
-
-    #     # Fetch price data
-    #     price_data = yf_ticker.history(start=start_date, end=end_date)
-    #     self.add_price_history(ticker, price_data)
-
-    #     print(f"Added data for {ticker}")
-
-    # def get_transformed_price_history(self, ticker: str, start_date: date = None, end_date: date = None):
-    #     df = self.get_price_history(ticker, start_date, end_date)
+    def get_asset_by_code(self, code: str) -> Optional[Asset]:
+        with self.session_scope() as session:
+            asset = session.query(Asset).filter(Asset.code == code).first()
+            # Expunge all objects from the session
+            session.expunge_all()
+            return asset
         
-    #     # Calculate 20-day moving average
-    #     df['MA20'] = df['close'].rolling(window=20).mean()
-
-    #     # Calculate daily returns
-    #     df['daily_return'] = df['close'].pct_change()
-
-    #     return df
-
-# def add_price_history(self, ticker: str, price_history: List[Dict]):
-#         with self.session_scope() as session:
-#             # Get the asset within this session
-#             asset = session.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
-#             if not asset:
-#                 raise ValueError(f"Asset with ticker {ticker} not found")
-
-#             # Fetch all existing dates for this asset
-#             existing_dates = set(date[0].date() for date in session.query(PriceHistory.date)
-#                                 .filter(PriceHistory.asset_id == asset.id).all())
-
-#             # Prepare bulk insert and update lists
-#             to_insert = []
-#             to_update = []
-
-#             for entry in price_history:
-#                 date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
-#                 if date in existing_dates:
-#                     to_update.append({
-#                         'asset_id': asset.id,
-#                         'date': date,
-#                         'open': entry['open'],
-#                         'high': entry['high'],
-#                         'low': entry['low'],
-#                         'close': entry['close'],
-#                         'volume': entry['volume']
-#                     })
-#                 else:
-#                     to_insert.append(PriceHistory(
-#                         asset_id=asset.id,
-#                         date=date,
-#                         open=entry['open'],
-#                         high=entry['high'],
-#                         low=entry['low'],
-#                         close=entry['close'],
-#                         volume=entry['volume']
-#                     ))
-
-#             # Bulk insert new entries
-#             if to_insert:
-#                 session.bulk_save_objects(to_insert)
-
-#             # Bulk update existing entries
-#             if to_update:
-#                 session.bulk_update_mappings(PriceHistory, to_update)
-
+    def get_portfolio_by_name(self, name: str) -> Optional[Portfolio]:
+        with self.session_scope() as session:
+            portfolio = session.query(Portfolio).filter(Portfolio.name == name).first()
+            # Expunge all objects from the session
+            session.expunge_all()
+            return portfolio
 
 # Usage example
 if __name__ == "__main__":
     db_access = DatabaseAccess()
     db_access.init_db()
-
-    # Fetch and store data for multiple tickers
-    tickers = ['AAPL', 'GOOGL', 'MSFT', 'AMZN']
-    for ticker in tickers:
-        db_access.fetch_and_store_yfinance_data(ticker)
-
-    # Retrieve and transform data for AAPL
-    aapl_data = db_access.get_transformed_price_history('AAPL')
-    print(aapl_data.tail())
