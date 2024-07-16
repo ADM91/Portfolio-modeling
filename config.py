@@ -20,6 +20,7 @@ action_types = [
 ]
 
 assets = [
+    {"ticker": "", "code": "USD", "name": "US dollar", "is_currency": True, "is_inverted": False},  # special case, value = 1
     {"ticker": "ISK=X", "code": "ISK", "name": "Icelandic krona", "is_currency": True, "is_inverted": True},
     {"ticker": "EUR=X", "code": "EUR", "name": "Euro", "is_currency": True, "is_inverted": True},
     {"ticker": "BTC-USD", "code": "BTC", "name": "Bitcoin", "is_currency": True, "is_inverted": False},

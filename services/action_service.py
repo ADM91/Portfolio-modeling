@@ -1,4 +1,5 @@
 
+import logging
 import pandas as pd
 
 from database.access import DatabaseAccess
@@ -47,14 +48,14 @@ class ActionService:
                 if asset:
                     row['asset_id'] = asset.id
                 else:
-                    raise ValueError(f"Invalid asset symbol: {row['asset_symbol']}")
+                    raise ValueError(f"Invalid asset symbol: {row['Asset']}")
 
                 # Get currency_id based on currency symbol
                 currency = self.db_access.get_asset_by_code(row['Currency'])
                 if currency:
                     row['currency_id'] = currency.id
                 else:
-                    raise ValueError(f"Invalid asset symbol: {row['asset_symbol']}")
+                    raise ValueError(f"Invalid currency symbol: {row['Currency']}")
 
                 # Remove unnecessary columns
                 row = row.drop(['Asset', 'Currency', 'Action', 'Portfolio'])
@@ -69,8 +70,8 @@ class ActionService:
                 action = Action(**row.to_dict())
                 action_list.append(action)
             except Exception as e:
-                print(f"Error converting row to Action: {e}")
-                print(f"action: {row}")
+                logging.error(f"Error converting row to Action: {e}")
+                logging.error(f"action: {row}")
         
         return action_list
 

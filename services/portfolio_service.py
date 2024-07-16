@@ -1,11 +1,8 @@
 
-import pandas as pd
-from pydantic import ValidationError
+import logging
 
-from models.asset import Asset  # Assuming you have an Asset class defined as previously discussed
-from models.portfolio import Portfolio  # Assuming you have a Portfolio class that manages a collection of Assets
-from models.activity import Activity
 from database.access import DatabaseAccess
+from database.entities import Action
 
 
 class PortfolioService:
@@ -16,7 +13,7 @@ class PortfolioService:
         self.db_access = db_access
 
 
-    def process_actions(self, actions : list[Activity]):
+    def process_actions(self, actions : list[Action]):
 
         # For each activiy
 

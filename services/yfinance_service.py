@@ -1,7 +1,9 @@
 
+
+import logging
+from datetime import datetime, timedelta
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
 
 from database.access import DatabaseAccess
 
@@ -75,6 +77,9 @@ class YFinanceService:
 
         asset_list = self.db_access.get_all_assets()
 
+        # omit USD - we assume always USD = 1
+        asset_list = [asset for asset in asset_list if asset.code != 'USD']
+        
         for asset in asset_list:
             # Get the most recent date in the database for this asset
             last_date = self.db_access.get_last_price_date(asset.ticker)
@@ -85,7 +90,7 @@ class YFinanceService:
 
             # Only fetch data if there's a gap to fill
             if start_date < end_date:
-                print(f"Updating {asset.ticker} from {start_date} to {end_date}")
+                logging.info(f"Updating {asset.ticker} from {start_date} to {end_date}")
                 
                 try:
                     # Fetch asset data - close on current day represents current price
@@ -99,13 +104,13 @@ class YFinanceService:
                         # Prepare and insert price history data
                         price_history = self.prepare_price_history_for_db(price_data)
                         self.db_access.add_price_history(asset.ticker, price_history)
-                        print(f"Updated {asset.ticker} with {len(price_history)} new entries")
+                        logging.info(f"Updated {asset.ticker} with {len(price_history)} new entries")
                     else:
-                        print(f"No new data for {asset.ticker}")
+                        logging.info(f"No new data for {asset.ticker}")
                 except Exception as e:
-                    print(f"Error updating {asset.ticker}: {str(e)}")
+                    logging.error(f"Error updating {asset.ticker}: {str(e)}")
             else:
-                print(f"{asset.ticker} is up to date")
+                logging.info(f"{asset.ticker} is up to date")
 
 
 # Usage example
@@ -113,3 +118,5 @@ if __name__ == "__main__":
     
     yf_service = YFinanceService(DatabaseAccess())
     yf_service.update_db_with_asset_data()
+
+    print('done')
