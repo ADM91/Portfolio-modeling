@@ -1,6 +1,7 @@
 
 import logging
 import pandas as pd
+from typing import List
 
 from database.access import DatabaseAccess
 from database.entities import Action
@@ -20,8 +21,12 @@ class ActionService:
         """
         action_list = []
 
-        # Read actions from excel
-        action_df = pd.read_excel(excel_path)
+        try:
+            # Read actions from excel
+            action_df = pd.read_excel(excel_path)
+        except Exception as e:
+            logging.error(f"Failed to read Excel file: {e}")
+            return action_list
         
         for _, row in action_df.iterrows():
             try:
@@ -67,16 +72,19 @@ class ActionService:
                 row = row.rename({'Date': 'date', 'Price': 'price', 'Quantity': 'quantity', 'Fee': 'fee', 'Platform': 'platform', 'Comment': 'comment'})
 
                 # Convert the row to a dictionary and then create an Action instance
-                action = Action(**row.to_dict())
-                action_list.append(action)
+                action_list.append(row.to_dict())
+
             except Exception as e:
                 logging.error(f"Error converting row to Action: {e}")
                 logging.error(f"action: {row}")
         
         return action_list
 
-    def insert_action(self):
-        pass
+    def insert_actions(self, actions_data: List[dict]):
+        """
+        Inserts an action into the database if it doesn't already exist.
+        """
+        self.db_access.insert_if_not_exists(Action, actions_data)
 
     def update_action(self):
         pass
@@ -88,6 +96,7 @@ class ActionService:
 if __name__ == "__main__":
 
     AS = ActionService(DatabaseAccess())
-    AS.read_actions_from_excel_to_action_list("_junk/test_action_data.xlsx")
+    actions = AS.read_actions_from_excel_to_action_list("_junk/test_action_data.xlsx")
+    AS.insert_actions(actions)
 
     print('done')

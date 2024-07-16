@@ -1,4 +1,5 @@
 
+import logging
 from contextlib import contextmanager
 from datetime import datetime
 from typing import List, Dict
@@ -158,6 +159,23 @@ class DatabaseAccess:
             # Expunge all objects from the session
             session.expunge_all()
             return portfolio
+
+    def action_exists(self, action: Action) -> bool:
+        with self.session_scope() as session:
+            try:
+                existing_action = session.execute(
+                    select(Action).where(
+                        Action.date == action.date,
+                        Action.asset_id == action.asset_id,
+                        Action.quantity == action.quantity,
+                        Action.price == action.price
+                    )
+                ).scalar_one_or_none()
+                return existing_action is not None
+            except Exception as e:
+                logging.error(f"Error checking for existing action: {e}")
+                return False
+
 
 # Usage example
 if __name__ == "__main__":
