@@ -1,4 +1,5 @@
 
+import os
 import logging
 from contextlib import contextmanager
 from datetime import datetime
@@ -11,8 +12,8 @@ from database.entities import *
 
 
 class DatabaseAccess:
-    def __init__(self, db_url='sqlite:///database/asset_tracker.db'):
-        self.engine = create_engine(db_url)
+    def __init__(self):
+        self.engine = create_engine(os.environ.get('DATABASE_URL'))
         self.Session = sessionmaker(bind=self.engine)
 
     def init_db(self):

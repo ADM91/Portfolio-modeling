@@ -71,6 +71,9 @@ class ActionService:
                 # rename columns to match database
                 row = row.rename({'Date': 'date', 'Price': 'price', 'Quantity': 'quantity', 'Fee': 'fee', 'Platform': 'platform', 'Comment': 'comment'})
 
+                # convert any nan values to None
+                row = row.where((pd.notnull(row)), None)
+
                 # Convert the row to a dictionary and then create an Action instance
                 action_list.append(row.to_dict())
 
