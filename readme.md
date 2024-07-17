@@ -14,6 +14,16 @@
   - `portfolio_service.py`: Manages portfolios.
   - `yfinance_service.py`: Interacts with Yahoo Finance API.
 
+## Setup
+1. Install dependencies:
+    ```bash
+    pip install -r requirements.txt
+    ```
+2. Initialize the database:
+    ```bash
+    python database/init_db.py
+    ```
+    
 ## TODO
  - ~~read and insert actions needs to be able to interpret USD as currency~~
  - ~~action service to read excel data, clean/interpret, insert/update database~~

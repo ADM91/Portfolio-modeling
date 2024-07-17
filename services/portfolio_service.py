@@ -1,5 +1,7 @@
 
 import logging
+import datetime
+import pandas as pd
 
 from database.access import DatabaseAccess
 from database.entities import Action
@@ -15,8 +17,30 @@ class PortfolioService:
 
     def process_actions(self, actions : list[Action]):
 
-        # For each activiy
+        # Get actions
+        actions_unprocessed = self.db_access.get_unprocessed_actions()
 
+        # Holdings time series are generated using pandas dataframes
+        holdings_dfs = {}
+
+        # Process unprocessed actions, update portfolio holdings    
+        for action in actions_unprocessed:
+            
+            # create df if it doesnt exist
+            if holdings_dfs.get(action.portfolio_id) is None:
+                holdings_dfs[action.portfolio_id] = {}
+            if holdings_dfs[action.portfolio_id].get(action.asset_id) is None:
+                holdings_dfs[action.portfolio_id][action.asset_id] = None
+
+            # if action is a buy action
+            if action.action_type_id == 1:
+                # datetime series
+                datetime_series = pd.DataFrame(pd.daterange(start=action.date, end=datetime.now(), freq='D'))
+
+                holdings_dfs[action.portfolio_id][action.asset_id] = pd.DataFrame(action)
+
+
+                
         return
 
     def insert_portfolio(self, portfolio):
