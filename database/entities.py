@@ -41,8 +41,6 @@ class Asset(Base):
     is_currency: Mapped[bool] = mapped_column(Boolean)
     is_inverted: Mapped[bool] = mapped_column(Boolean)
     price_history: Mapped[list["PriceHistory"]] = relationship("PriceHistory", back_populates="asset")
-    holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
-    metrics: Mapped[list["Metric"]] = relationship("Metric", back_populates="currency")
 
 class PriceHistory(Base):
     # usd rate, time series
@@ -63,46 +61,37 @@ class Portfolio(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String)
     owner: Mapped[str] = mapped_column(String)
-    holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="portfolio")
-    metrics: Mapped[list["Metric"]] = relationship("Metric", back_populates="portfolio")
 
 class PortfolioHolding(Base):
     # in kind, time series
     __tablename__ = 'portfolio_holdings'
     id: Mapped[int] = mapped_column(primary_key=True)
-    portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
-    asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
-    quantity: Mapped[float] = mapped_column(Float)
+    action_id: Mapped[int] = mapped_column(ForeignKey('actions.id'))
+    quantity_change: Mapped[float] = mapped_column(Float)
+    quantity_new: Mapped[float] = mapped_column(Float)
     date: Mapped[datetime] = mapped_column(DateTime)
-    portfolio: Mapped[Portfolio] = relationship("Portfolio", back_populates="holdings")
-    asset: Mapped[Asset] = relationship("Asset", back_populates="holdings")
-    metrics: Mapped[list["Metric"]] = relationship("Metric", back_populates="holding")
+    action: Mapped[Action] = relationship("Action")
 
-class MetricType(Base):
-    # base currency agnostic
-    __tablename__ = 'metric_types'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(50))
+# class MetricType(Base):
+#     # base currency agnostic
+#     __tablename__ = 'metric_types'
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     name: Mapped[str] = mapped_column(String(50))
 
-class Metric(Base):
-    # base currency agnostic, time series
-    __tablename__ = 'metrics'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    metric_type_id: Mapped[int] = mapped_column(ForeignKey('metric_types.id'))
-    portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
-    holding_id: Mapped[Optional[int]] = mapped_column(ForeignKey('portfolio_holdings.id'), nullable=True)  # Null for portfolio-level metrics
-    currency_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
-    date: Mapped[datetime] = mapped_column(DateTime)
-    value: Mapped[float] = mapped_column(Float)
-    metric_type: Mapped[MetricType] = relationship("MetricType")
-    portfolio: Mapped[Portfolio] = relationship("Portfolio", back_populates="metrics")
-    holding: Mapped[Optional[PortfolioHolding]] = relationship("PortfolioHolding", back_populates="metrics")
-    currency: Mapped[Asset] = relationship("Asset", back_populates="metrics")
+# class Metric(Base):
+#     # base currency agnostic, time series
+#     __tablename__ = 'metrics'
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     metric_type_id: Mapped[int] = mapped_column(ForeignKey('metric_types.id'))
+#     portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
+#     holding_id: Mapped[Optional[int]] = mapped_column(ForeignKey('portfolio_holdings.id'), nullable=True)  # Null for portfolio-level metrics
+#     currency_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
+#     date: Mapped[datetime] = mapped_column(DateTime)
+#     value: Mapped[float] = mapped_column(Float)
+#     metric_type: Mapped[MetricType] = relationship("MetricType")
+#     portfolio: Mapped[Portfolio] = relationship("Portfolio", back_populates="metrics")
+#     holding: Mapped[Optional[PortfolioHolding]] = relationship("PortfolioHolding", back_populates="metrics")
+#     currency: Mapped[Asset] = relationship("Asset", back_populates="metrics")
 
 # Backpopulate relationships
 Asset.price_history = relationship("PriceHistory", back_populates="asset")
-Asset.holdings = relationship("PortfolioHolding", back_populates="asset")
-Asset.metrics = relationship("Metric", back_populates="currency")
-Portfolio.holdings = relationship("PortfolioHolding", back_populates="portfolio")
-Portfolio.metrics = relationship("Metric", back_populates="portfolio")
-PortfolioHolding.metrics = relationship("Metric", back_populates="holding")

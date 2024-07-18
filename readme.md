@@ -21,7 +21,7 @@
     ```
 2. Initialize the database:
     ```bash
-    python database/init_db.py
+    python main.py
     ```
     
 ## TODO

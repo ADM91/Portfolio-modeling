@@ -1,6 +1,6 @@
 
 import logging
-import datetime
+from datetime import datetime
 import pandas as pd
 
 from database.access import DatabaseAccess
@@ -14,34 +14,36 @@ class PortfolioService:
     def __init__(self, db_access: DatabaseAccess):
         self.db_access = db_access
 
+    def merge_time_series(self, ts_1, ts_2):
+        ts_1 = pd.merge(left=ts_1, right=ts_2, on='date', how='outer')
+        ts_1['quantity'] = ts_1[['quantity_x', 'quantity_y']].sum(axis=1)
+        ts_1.drop(columns=['quantity_x', 'quantity_y'], inplace=True)
+        return ts_1
 
-    def process_actions(self, actions : list[Action]):
+    def process_actions(self):
 
         # Get actions
         actions_unprocessed = self.db_access.get_unprocessed_actions()
 
-        # Holdings time series are generated using pandas dataframes
-        holdings_dfs = {}
-
-        # Process unprocessed actions, update portfolio holdings    
+        # Process unprocessed actions, update portfolio holdings  
         for action in actions_unprocessed:
-            
-            # create df if it doesnt exist
-            if holdings_dfs.get(action.portfolio_id) is None:
-                holdings_dfs[action.portfolio_id] = {}
-            if holdings_dfs[action.portfolio_id].get(action.asset_id) is None:
-                holdings_dfs[action.portfolio_id][action.asset_id] = None
 
-            # if action is a buy action
-            if action.action_type_id == 1:
-                # datetime series
-                datetime_series = pd.DataFrame(pd.daterange(start=action.date, end=datetime.now(), freq='D'))
+            # if action is buy or dividend
+            if action.action_type_id in (1,3):  
+                
+                # run transaction
+                self.db_access.update_portfolio_holdings_and_action(action)
+                    
+            elif action.action_type_id == 2:
 
-                holdings_dfs[action.portfolio_id][action.asset_id] = pd.DataFrame(action)
-
-
+                # run transaction
+                self.db_access.update_portfolio_holdings_and_action(action)
                 
         return
+
+    def create_holdings_time_series(self, portfolio_id, asset_id):
+
+        pass
 
     def insert_portfolio(self, portfolio):
         # Insert portfolio into database
@@ -69,6 +71,13 @@ class PortfolioService:
 
 
 
+if __name__ == "__main__":
+
+    db_access = DatabaseAccess()
+    portfolio_service = PortfolioService(db_access)
+    portfolio_service.process_actions()
+
+    print('done')
 
 
 
@@ -158,4 +167,52 @@ class PortfolioService:
     #     with self.db_manager.get_connection() as conn:
     #         metrics.to_sql('portfolio_metrics', conn, if_exists='replace', index=False)
 
+    # def process_actions(self):
 
+    #     # Get actions
+    #     actions_unprocessed = self.db_access.get_unprocessed_actions()
+
+    #     # Holdings time series are generated using pandas dataframes
+    #     holdings_dfs = {}
+
+    #     # Process unprocessed actions, update portfolio holdings  
+    #     # TODO need to track action processing so i can update is_processed flag  
+    #     for action in actions_unprocessed:
+            
+    #         # create df if it doesnt exist
+    #         if holdings_dfs.get(action.portfolio_id) is None:
+    #             holdings_dfs[action.portfolio_id] = {}
+    #         if holdings_dfs[action.portfolio_id].get(action.asset_id) is None:
+    #             holdings_dfs[action.portfolio_id][action.asset_id] = None
+
+    #         # if action is buy or dividend
+    #         if action.action_type_id in (1,3):  
+
+    #             # create series
+    #             in_kind_ts = pd.DataFrame(pd.date_range(start=action.date, end=datetime.now(), freq='D'), columns=['date'])
+    #             in_kind_ts['quantity'] = action.quantity  
+
+    #             # if there is alread a series under this portfolio and asset, aggregate them
+    #             if holdings_dfs[action.portfolio_id][action.asset_id] is not None:
+    #                 # merge dataframes
+    #                 holdings_dfs[action.portfolio_id][action.asset_id] = self.merge_time_series(holdings_dfs[action.portfolio_id][action.asset_id], in_kind_ts)
+
+    #             else:
+    #                 holdings_dfs[action.portfolio_id][action.asset_id] = in_kind_ts
+
+    #         elif action.action_type_id == 2:
+
+    #             # create series (sell will never start from 0)
+    #             in_kind_ts = pd.DataFrame(pd.date_range(start=action.date, end=datetime.now(), freq='D'), columns=['date'])
+    #             in_kind_ts['quantity'] = -action.quantity
+
+    #             # merge dataframes
+    #             holdings_dfs[action.portfolio_id][action.asset_id] = self.merge_time_series(holdings_dfs[action.portfolio_id][action.asset_id], in_kind_ts)
+  
+
+    #     # Update portfolio holdings in database
+    #     for portfolio_id in holdings_dfs:
+    #         for asset_id in holdings_dfs[portfolio_id]:
+    #             self.db_access.update_portfolio_holdings(portfolio_id, asset_id, holdings_dfs[portfolio_id][asset_id], datetime.now())
+
+    #     return

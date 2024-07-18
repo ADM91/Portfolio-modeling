@@ -25,8 +25,9 @@ class DatabaseAccess:
         try:
             yield session
             session.commit()  # runs after "with" block finishes
-        except:
+        except Exception as e:
             session.rollback()
+            logging.error(f"Transaction failed: {e}")
             raise
         finally:
             session.close()
@@ -167,8 +168,16 @@ class DatabaseAccess:
             # Expunge all objects from the session
             session.expunge_all()
             return actions
+        
+    def update_portfolio_holdings_and_action(self, action: Action):
+        # with self.session_scope() as session:
+            # Update portfolio holdings
 
 
+            # Update action as processed
+            # session.query(Action).filter(action.id == action_id).update({'is_processed': True})
+
+        return
 
 # Usage example
 if __name__ == "__main__":
