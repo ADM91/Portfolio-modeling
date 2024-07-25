@@ -164,18 +164,58 @@ class DatabaseAccess:
 
     def get_unprocessed_actions(self) -> List[Action]:
         with self.session_scope() as session:
-            actions = session.query(Action).filter(Action.is_processed == False).all()
+            actions = session.query(Action).filter(Action.is_processed == False).order_by(Action.date).all()
             # Expunge all objects from the session
             session.expunge_all()
             return actions
         
     def update_portfolio_holdings_and_action(self, action: Action):
-        # with self.session_scope() as session:
-            # Update portfolio holdings
+        with self.session_scope() as session:
+            
+            # Get last quantity
+            quantity_old = (
+                session.query(PortfolioHolding.quantity_new)
+                .join(Action)
+                .filter(
+                    (Action.portfolio_id == action.portfolio_id) &
+                    (Action.asset_id == action.asset_id)
+                )
+                .order_by(PortfolioHolding.date.desc())
+                .first()
+                )
 
+            # Get the float value
+            quantity_old = quantity_old[0] if quantity_old else 0
+
+            # Add or subtract from quantity_old
+            if action.action_type_id in (ActionTypeEnum.buy.value, ActionTypeEnum.dividend.value):
+                quantity_change = action.quantity
+            elif action.action_type_id == ActionTypeEnum.sell.value:
+                quantity_change = -action.quantity
+            else:
+                quantity_change = 0
+
+            # TODO: figure out why this does not work here, but works after i add the new entry to PortfolioHolding
+            # if action.action_type.name in ('buy', 'dividend'):
+            #     quantity_change = action.quantity
+            # elif action.action_type.name == 'sell':
+            #     quantity_change = -action.quantity
+            # else:
+            #     quantity_change = 0
+
+            # Add the new entry to PortfolioHolding
+            session.add(PortfolioHolding(
+                action_id=action.asset_id,
+                portfolio_id=action.portfolio_id,
+                asset_id=action.asset_id,
+                quantity_change=quantity_change,
+                quantity_new=quantity_old+quantity_change,
+                date=action.date,
+                action=action
+            ))
 
             # Update action as processed
-            # session.query(Action).filter(action.id == action_id).update({'is_processed': True})
+            session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
 
         return
 

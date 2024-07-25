@@ -22,23 +22,15 @@ class PortfolioService:
 
     def process_actions(self):
 
-        # Get actions
+        # Get unprocessed actions
         actions_unprocessed = self.db_access.get_unprocessed_actions()
 
         # Process unprocessed actions, update portfolio holdings  
         for action in actions_unprocessed:
 
-            # if action is buy or dividend
-            if action.action_type_id in (1,3):  
-                
-                # run transaction
-                self.db_access.update_portfolio_holdings_and_action(action)
+            # run transaction, update portfolio holdings and action as processed
+            self.db_access.update_portfolio_holdings_and_action(action)
                     
-            elif action.action_type_id == 2:
-
-                # run transaction
-                self.db_access.update_portfolio_holdings_and_action(action)
-                
         return
 
     def create_holdings_time_series(self, portfolio_id, asset_id):

@@ -1,4 +1,5 @@
 
+from enum import Enum
 from typing import Optional
 from datetime import datetime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -8,11 +9,17 @@ from sqlalchemy import String, ForeignKey, DateTime, Boolean, Float, Integer
 class Base(DeclarativeBase):
     pass
 
+class ActionTypeEnum(Enum):
+    buy = 1
+    sell = 2
+    dividend = 3
+
 class ActionType(Base):
     # reference table
     __tablename__ = 'action_types'
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50))
+    # actions: Mapped[list["Action"]] = relationship("Action", back_populates="action_type")
 
 class Action(Base):
     # investment action, buy, sell, dividend (currency agnostic)
@@ -28,19 +35,12 @@ class Action(Base):
     fee: Mapped[float] = mapped_column(Float)
     platform: Mapped[Optional[str]] = mapped_column(String)
     comment: Mapped[Optional[str]] = mapped_column(String)
-    is_processed: Mapped[bool] = mapped_column(Boolean)
+    is_processed: Mapped[bool] = mapped_column(Boolean) 
     action_type: Mapped[ActionType] = relationship("ActionType")
-
-class Asset(Base):
-    # reference table
-    __tablename__ = 'assets'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    ticker: Mapped[str] = mapped_column(unique=True)
-    code: Mapped[str] = mapped_column(String)
-    name: Mapped[str] = mapped_column(String(50))
-    is_currency: Mapped[bool] = mapped_column(Boolean)
-    is_inverted: Mapped[bool] = mapped_column(Boolean)
-    price_history: Mapped[list["PriceHistory"]] = relationship("PriceHistory", back_populates="asset")
+    asset: Mapped["Asset"] = relationship("Asset", foreign_keys=[asset_id])
+    currency: Mapped["Asset"] = relationship("Asset", foreign_keys=[currency_id])
+    portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="actions")
+    # action_type: Mapped["ActionType"] = relationship("ActionType", back_populates="actions")
 
 class PriceHistory(Base):
     # usd rate, time series
@@ -55,22 +55,43 @@ class PriceHistory(Base):
     volume: Mapped[int] = mapped_column(Integer)
     asset: Mapped["Asset"] = relationship("Asset", back_populates="price_history")
 
-class Portfolio(Base):
+class Asset(Base):
     # reference table
-    __tablename__ = 'portfolios'
+    __tablename__ = 'assets'
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String)
-    owner: Mapped[str] = mapped_column(String)
+    ticker: Mapped[str] = mapped_column(unique=True)
+    code: Mapped[str] = mapped_column(String)
+    name: Mapped[str] = mapped_column(String(50))
+    is_currency: Mapped[bool] = mapped_column(Boolean)
+    is_inverted: Mapped[bool] = mapped_column(Boolean)
+    price_history: Mapped[list["PriceHistory"]] = relationship("PriceHistory", back_populates="asset", foreign_keys=[PriceHistory.asset_id])
+    actions: Mapped[list["Action"]] = relationship("Action", back_populates="asset", foreign_keys=[Action.asset_id])
+    currency_actions: Mapped[list["Action"]] = relationship("Action", back_populates="currency", foreign_keys=[Action.currency_id])
+    portfolio_holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
 
 class PortfolioHolding(Base):
     # in kind, time series
     __tablename__ = 'portfolio_holdings'
     id: Mapped[int] = mapped_column(primary_key=True)
     action_id: Mapped[int] = mapped_column(ForeignKey('actions.id'))
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
+    asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
     quantity_change: Mapped[float] = mapped_column(Float)
     quantity_new: Mapped[float] = mapped_column(Float)
     date: Mapped[datetime] = mapped_column(DateTime)
-    action: Mapped[Action] = relationship("Action")
+    action: Mapped["Action"] = relationship("Action")
+    portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings")
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="portfolio_holdings")
+
+class Portfolio(Base):
+    # reference table
+    __tablename__ = 'portfolios'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    owner: Mapped[str] = mapped_column(String)
+    actions: Mapped[list["Action"]] = relationship("Action", back_populates="portfolio", foreign_keys=[Action.portfolio_id])
+    holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="portfolio")
+
 
 # class MetricType(Base):
 #     # base currency agnostic
@@ -92,6 +113,3 @@ class PortfolioHolding(Base):
 #     portfolio: Mapped[Portfolio] = relationship("Portfolio", back_populates="metrics")
 #     holding: Mapped[Optional[PortfolioHolding]] = relationship("PortfolioHolding", back_populates="metrics")
 #     currency: Mapped[Asset] = relationship("Asset", back_populates="metrics")
-
-# Backpopulate relationships
-Asset.price_history = relationship("PriceHistory", back_populates="asset")
