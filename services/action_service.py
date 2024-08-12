@@ -87,7 +87,8 @@ class ActionService:
         """
         Inserts an action into the database if it doesn't already exist.
         """
-        self.db_access.insert_if_not_exists(Action, actions_data)
+        filter_fields=['portfolio_id', 'action_type_id', 'date', 'asset_id', 'currency_id', 'price', 'quantity']
+        self.db_access.insert_if_not_exists(Action, actions_data, filter_fields)
 
     def update_action(self):
         pass

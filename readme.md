@@ -27,8 +27,8 @@
 ## TODO
  - ~~read and insert actions needs to be able to interpret USD as currency~~
  - ~~action service to read excel data, clean/interpret, insert/update database~~
- - portfolio service updates portfolio and portfolioholdings tables
- - time series for holdings in kind - separate table or dataframe in ram.
+ - ~~portfolio service updates portfolio and portfolioholdings tables~~
+ - time series for holdings in kind - separate table or dataframe in ram. - separate table
  - metrics service updates metrics - tricky to implement - need to determine how to provide time frame for requests
  - backend services as fastapi 
  - frontend

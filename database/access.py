@@ -3,9 +3,9 @@ import os
 import logging
 from contextlib import contextmanager
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 
-from sqlalchemy import create_engine, select, and_
+from sqlalchemy import create_engine, select, and_, func
 from sqlalchemy.orm import sessionmaker
 
 from database.entities import *
@@ -32,10 +32,14 @@ class DatabaseAccess:
         finally:
             session.close()
 
-    def insert_if_not_exists(self, model, data: List[Dict]):
+    def insert_if_not_exists(self, model, data: List[Dict], filter_fields: Optional[List[str]] = None):
         with self.session_scope() as session:
             for item in data:
-                exists = session.query(model).filter_by(**item).first()
+                if filter_fields:
+                    filter_dict = {field: item[field] for field in filter_fields if field in item}
+                    exists = session.query(model).filter_by(**filter_dict).first()
+                else: 
+                    exists = session.query(model).filter_by(**item).first()
                 if not exists:
                     obj = model(**item)
                     session.add(obj)
@@ -218,6 +222,25 @@ class DatabaseAccess:
             session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
 
         return
+
+    def get_last_holdings_time_series_update(self) -> Optional[datetime]:
+        with self.session_scope() as session:
+            last_update = session.query(func.max(PortfolioHoldingsTimeSeries.date)).scalar()
+            return last_update.date() if last_update else None
+
+    def clear_holdings_time_series(self):
+        with self.session_scope() as session:
+            session.query(PortfolioHoldingsTimeSeries).delete()
+
+    def get_earliest_action_date(self) -> datetime:
+        """
+        Get the date of the earliest action in the database.
+        If no actions exist, return the current date.
+        """
+        with self.session_scope() as session:
+            earliest_date = session.query(func.min(Action.date)).scalar()
+            return earliest_date.date() if earliest_date else datetime.now().date()
+
 
 # Usage example
 if __name__ == "__main__":

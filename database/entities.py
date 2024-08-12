@@ -68,9 +68,20 @@ class Asset(Base):
     actions: Mapped[list["Action"]] = relationship("Action", back_populates="asset", foreign_keys=[Action.asset_id])
     currency_actions: Mapped[list["Action"]] = relationship("Action", back_populates="currency", foreign_keys=[Action.currency_id])
     portfolio_holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
+    holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="asset")
+
+
+class PortfolioHoldingsTimeSeries(Base):
+    __tablename__ = 'portfolio_holdings_time_series'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, ForeignKey('portfolios.id'))
+    asset_id: Mapped[int] = mapped_column(Integer, ForeignKey('assets.id'))
+    date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings_time_series")
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="holdings_time_series")
 
 class PortfolioHolding(Base):
-    # in kind, time series
     __tablename__ = 'portfolio_holdings'
     id: Mapped[int] = mapped_column(primary_key=True)
     action_id: Mapped[int] = mapped_column(ForeignKey('actions.id'))
@@ -84,13 +95,14 @@ class PortfolioHolding(Base):
     asset: Mapped["Asset"] = relationship("Asset", back_populates="portfolio_holdings")
 
 class Portfolio(Base):
-    # reference table
     __tablename__ = 'portfolios'
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String)
     owner: Mapped[str] = mapped_column(String)
     actions: Mapped[list["Action"]] = relationship("Action", back_populates="portfolio", foreign_keys=[Action.portfolio_id])
     holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="portfolio")
+    holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="portfolio")
+
 
 
 # class MetricType(Base):
