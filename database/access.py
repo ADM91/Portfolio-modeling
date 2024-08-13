@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 from sqlalchemy import create_engine, select, and_, func
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, contains_eager, joinedload
 
 from database.entities import *
 
@@ -233,14 +233,73 @@ class DatabaseAccess:
             session.query(PortfolioHoldingsTimeSeries).delete()
 
     def get_earliest_action_date(self) -> datetime:
-        """
-        Get the date of the earliest action in the database.
-        If no actions exist, return the current date.
-        """
         with self.session_scope() as session:
             earliest_date = session.query(func.min(Action.date)).scalar()
             return earliest_date.date() if earliest_date else datetime.now().date()
 
+    def get_all_portfolios(self) -> List[Portfolio]:
+        with self.session_scope() as session:
+            portfolios = session.query(Portfolio).all()
+            session.expunge_all()
+        return portfolios
+
+    # def get_portfolio_asset_actions(self, portfolio_id: int, asset_id: int) -> List[Action]:
+    #     with self.session_scope() as session:
+    #         actions = session.query(Action).filter(
+    #             Action.portfolio_id == portfolio_id,
+    #             Action.asset_id == asset_id
+    #         ).order_by(Action.date).all()
+    #         session.expunge_all()
+    #     return actions
+
+    # def get_portfolio_asset_actions(self, portfolio_id: int, asset_id: int) -> List[Action]:
+    #     with self.session_scope() as session:
+    #         actions = session.query(Action).options(
+    #             contains_eager(Action.action_type)
+    #         ).join(
+    #             Action.action_type
+    #         ).filter(
+    #             Action.portfolio_id == portfolio_id,
+    #             Action.asset_id == asset_id
+    #         ).order_by(Action.date).all()
+            
+    #         # Detach the objects from the session
+    #         for action in actions:
+    #             session.expunge(action)
+    #             session.expunge(action.action_type)
+    #     return actions
+
+    def get_portfolio_asset_actions(self, session, portfolio_id: int, asset_id: int) -> List[Action]:
+        return session.query(Action).options(
+            joinedload(Action.action_type)
+        ).filter(
+            Action.portfolio_id == portfolio_id,
+            Action.asset_id == asset_id
+        ).order_by(Action.date).all()
+
+
+    def merge_portfolio_holdings_time_series(self, holdings: List[PortfolioHoldingsTimeSeries]):
+        with self.session_scope() as session:
+            for holding in holdings:
+                existing = session.query(PortfolioHoldingsTimeSeries).filter(
+                    PortfolioHoldingsTimeSeries.portfolio_id == holding.portfolio_id,
+                    PortfolioHoldingsTimeSeries.asset_id == holding.asset_id,
+                    PortfolioHoldingsTimeSeries.date == holding.date
+                ).first()
+                if existing:
+                    existing.quantity = holding.quantity
+                else:
+                    session.add(holding)
+
+    def get_portfolio_holdings_time_series(self, portfolio_id: int, asset_id: int, start_date: datetime, end_date: datetime) -> List[PortfolioHoldingsTimeSeries]:
+        with self.session_scope() as session:
+            holdings = session.query(PortfolioHoldingsTimeSeries).filter(
+                PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
+                PortfolioHoldingsTimeSeries.asset_id == asset_id,
+                PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
+            ).order_by(PortfolioHoldingsTimeSeries.date).all()
+            session.expunge_all()
+        return holdings
 
 # Usage example
 if __name__ == "__main__":
