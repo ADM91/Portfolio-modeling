@@ -4,8 +4,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict
 import pandas as pd
 
-
-from database.access import DatabaseAccess
 from database.entities import PortfolioHoldingsTimeSeries, Asset, Portfolio
 
 

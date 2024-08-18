@@ -1,15 +1,16 @@
 
-from database.access import DatabaseAccess
+from database.access_v2 import DatabaseAccess
 from database.entities import ActionType, Asset, Portfolio
 from config import action_types, assets, portfolios
 
+db = DatabaseAccess()
 
-def initialize_database():
-    db_access = DatabaseAccess()
-    db_access.init_db()
-    db_access.insert_if_not_exists(ActionType, action_types)
-    db_access.insert_if_not_exists(Asset, assets)
-    db_access.insert_if_not_exists(Portfolio, portfolios)
+@db.with_session
+def initialize_database(session):
+    db.init_db()
+    db.insert_if_not_exists(session, ActionType, action_types)
+    db.insert_if_not_exists(session, Asset, assets)
+    db.insert_if_not_exists(session, Portfolio, portfolios)
 
 
 if __name__ == "__main__":

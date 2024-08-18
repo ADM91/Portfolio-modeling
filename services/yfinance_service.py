@@ -1,20 +1,16 @@
 
-
 import logging
 from datetime import datetime, timedelta
 import yfinance as yf
 import pandas as pd
 
-from database.access import DatabaseAccess
+from database.access_v2 import with_session, get_all_assets, get_last_price_date, add_price_history
 
 
 class YFinanceService:
     """
     Class for fetching asset data from yFinance API and storing it in the database.
     """
-    def __init__(self, db_access: DatabaseAccess):
-        self.db_access = db_access
-
     def fetch_asset_data(self, ticker: str, start_date: datetime = None, end_date: datetime = None):
         """
         Fetches asset data from yFinance API.
@@ -71,18 +67,16 @@ class YFinanceService:
 
         return price_history
 
-    def update_db_with_asset_data(self):
-        # db_access = DatabaseAccess()
-        # yf_service = YFinanceService(db_access)
-
-        asset_list = self.db_access.get_all_assets()
+    @with_session
+    def update_db_with_asset_data(self, session):
+        asset_list = get_all_assets(session)
 
         # omit USD - we assume always USD = 1
         asset_list = [asset for asset in asset_list if asset.code != 'USD']
         
         for asset in asset_list:
             # Get the most recent date in the database for this asset
-            last_date = self.db_access.get_last_price_date(asset.ticker)
+            last_date = get_last_price_date(session, asset.ticker)
             
             # If we have no data, start from 5 years ago, otherwise start from the day after the last date
             start_date = last_date if last_date else datetime.now() - timedelta(days=5*365)
@@ -103,7 +97,7 @@ class YFinanceService:
                     if not price_data.empty:
                         # Prepare and insert price history data
                         price_history = self.prepare_price_history_for_db(price_data)
-                        self.db_access.add_price_history(asset.ticker, price_history)
+                        add_price_history(session, asset.ticker, price_history)
                         logging.info(f"Updated {asset.ticker} with {len(price_history)} new entries")
                     else:
                         logging.info(f"No new data for {asset.ticker}")
@@ -116,7 +110,7 @@ class YFinanceService:
 # Usage example
 if __name__ == "__main__":
     
-    yf_service = YFinanceService(DatabaseAccess())
+    yf_service = YFinanceService()
     yf_service.update_db_with_asset_data()
 
     print('done')
