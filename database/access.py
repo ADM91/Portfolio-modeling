@@ -1,275 +1,366 @@
 
 import os
-import logging
 from contextlib import contextmanager
-from datetime import datetime
-from typing import List, Dict, Optional
-
 from sqlalchemy import create_engine, select, and_, func
-from sqlalchemy.orm import sessionmaker, contains_eager, joinedload
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import sessionmaker, joinedload, Session
+from typing import List, Dict, Optional, Callable
+from datetime import datetime
+from functools import wraps
 
 from database.entities import *
 
 
-class DatabaseAccess:
-    def __init__(self):
-        self.engine = create_engine(os.environ.get('DATABASE_URL'))
-        self.Session = sessionmaker(bind=self.engine)
+engine = create_engine(os.environ.get('DATABASE_URL'))
+SessionFactory = sessionmaker(bind=engine)
 
-    def init_db(self):
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    session = SessionFactory()
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+def with_session(func: Callable):
+    """Decorator to automatically handle session creation and cleanup."""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        with session_scope() as session:
+            if args and hasattr(args[0], func.__name__):
+                # This is likely a method call, insert session after self
+                return func(args[0], session, *args[1:], **kwargs)
+            else:
+                # This is likely a regular function call
+                return func(session, *args, **kwargs)
+    return wrapper
+
+
+class DatabaseAccess:
+
+    def __init__(self, engine: Optional[Engine] = None):
+        if engine is None:
+            self.engine = create_engine(os.environ.get('DATABASE_URL'))
+        else:
+            self.engine = engine
+
+
+    def init_db(self) -> None:
+        """Initialize the database by creating all tables."""
         Base.metadata.create_all(self.engine)
 
-    @contextmanager
-    def session_scope(self):
-        session = self.Session()
-        try:
-            yield session
-            session.commit()  # runs after "with" block finishes
-        except Exception as e:
-            session.rollback()
-            logging.error(f"Transaction failed: {e}")
-            raise
-        finally:
-            session.close()
+    def insert_if_not_exists(self, session: Session, model: Base, data: List[Dict], filter_fields: Optional[List[str]] = None) -> None:
+        """
+        Insert data into the database if it doesn't already exist.
 
-    def insert_if_not_exists(self, model, data: List[Dict], filter_fields: Optional[List[str]] = None):
-        with self.session_scope() as session:
-            for item in data:
-                if filter_fields:
-                    filter_dict = {field: item[field] for field in filter_fields if field in item}
-                    exists = session.query(model).filter_by(**filter_dict).first()
-                else: 
-                    exists = session.query(model).filter_by(**item).first()
-                if not exists:
-                    obj = model(**item)
-                    session.add(obj)
+        Args:
+            session (Session): SQLAlchemy session
+            model (Base): SQLAlchemy model class
+            data (List[Dict]): List of dictionaries containing data to insert
+            filter_fields (Optional[List[str]]): Fields to use for filtering existing data
+        """
+        for item in data:
+            if filter_fields:
+                filter_dict = {field: item[field] for field in filter_fields if field in item}
+                exists = session.query(model).filter_by(**filter_dict).first()
+            else: 
+                exists = session.query(model).filter_by(**item).first()
+            if not exists:
+                obj = model(**item)
+                session.add(obj)
 
-    def add_asset(self, ticker: str, name: str):
-        with self.session_scope() as session:
-            # Check if the asset already exists
-            existing_asset = session.execute(
-                select(Asset).where(Asset.ticker == ticker)
-            ).scalar_one_or_none()
+    def add_asset(self, session: Session, ticker: str, name: str) -> Asset:
+        """
+        Add a new asset or update an existing one.
 
-            if existing_asset:
-                # If the asset exists, update the name if it's different
-                if existing_asset.name != name:
-                    existing_asset.name = name
-                return existing_asset
+        Args:
+            session (Session): SQLAlchemy session
+            ticker (str): Asset ticker
+            name (str): Asset name
+
+        Returns:
+            Asset: The added or updated asset
+        """
+        existing_asset = session.query(Asset).filter(Asset.ticker == ticker).first()
+
+        if existing_asset:
+            if existing_asset.name != name:
+                existing_asset.name = name
+            return existing_asset
+        else:
+            new_asset = Asset(ticker=ticker, name=name)
+            session.add(new_asset)
+            session.flush()
+            return new_asset
+
+    def add_price_history(self, session: Session, ticker: str, price_history: List[Dict]) -> None:
+        """
+        Add price history for an asset.
+
+        Args:
+            session (Session): SQLAlchemy session
+            ticker (str): Asset ticker
+            price_history (List[Dict]): List of price history entries
+        """
+        asset = session.query(Asset).filter(Asset.ticker == ticker).first()
+        if not asset:
+            raise ValueError(f"Asset with ticker {ticker} not found")
+
+        min_date = min(entry['date'] for entry in price_history)
+
+        existing_records = session.query(PriceHistory).filter(
+            and_(
+                PriceHistory.asset_id == asset.id,
+                PriceHistory.date >= min_date
+            )
+        ).all()
+
+        existing_dates = {record.date.date(): record.id for record in existing_records}
+
+        to_insert = []
+        to_update = []
+
+        for entry in price_history:
+            date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
+            if date in existing_dates:
+                to_update.append({
+                    'id': existing_dates[date],
+                    'asset_id': asset.id,
+                    'date': date,
+                    'open': entry['open'],
+                    'high': entry['high'],
+                    'low': entry['low'],
+                    'close': entry['close'],
+                    'volume': entry['volume']
+                })
             else:
-                # If the asset doesn't exist, create a new one
-                new_asset = Asset(ticker=ticker, name=name)
-                session.add(new_asset)
-                session.flush()  # This will populate the id of the new asset
-                return new_asset
+                to_insert.append(PriceHistory(
+                    asset_id=asset.id,
+                    date=date,
+                    open=entry['open'],
+                    high=entry['high'],
+                    low=entry['low'],
+                    close=entry['close'],
+                    volume=entry['volume']
+                ))
 
-    def add_price_history(self, ticker: str, price_history: List[Dict]):
-        with self.session_scope() as session:
-            # Get the asset within this session
-            asset = session.execute(select(Asset).where(Asset.ticker == ticker)).scalar_one_or_none()
-            if not asset:
-                raise ValueError(f"Asset with ticker {ticker} not found")
+        if to_insert:
+            session.bulk_save_objects(to_insert)
 
-            # Get the minimum date from the input price history
-            min_date = min(entry['date'] for entry in price_history)
+        if to_update:
+            session.bulk_update_mappings(PriceHistory, to_update)
 
-            # Fetch existing records within the date range
-            existing_records = session.execute(
-                select(PriceHistory)
-                .where(
-                    and_(
-                        PriceHistory.asset_id == asset.id,
-                        PriceHistory.date >= min_date
-                        )
-                )
-            ).all()
+    def get_all_assets(self, session: Session) -> List[Asset]:
+        """
+        Get all assets.
 
-            # Get existing dates and ids
-            existing_dates = {record[0].date.date(): record[0].id for record in existing_records}
+        Args:
+            session (Session): SQLAlchemy session
 
-            # Prepare bulk insert and update lists
-            to_insert = []
-            to_update = []
+        Returns:
+            List[Asset]: List of all assets
+        """
+        return session.query(Asset).all()
 
-            for entry in price_history:
-                date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
-                if date in existing_dates:
-                    to_update.append({
-                        'id': existing_dates[date],
-                        'asset_id': asset.id,
-                        'date': date,
-                        'open': entry['open'],
-                        'high': entry['high'],
-                        'low': entry['low'],
-                        'close': entry['close'],
-                        'volume': entry['volume']
-                    })
-                else:
-                    to_insert.append(PriceHistory(
-                        asset_id=asset.id,
-                        date=date,
-                        open=entry['open'],
-                        high=entry['high'],
-                        low=entry['low'],
-                        close=entry['close'],
-                        volume=entry['volume']
-                    ))
+    def get_all_currencies(self, session: Session) -> List[Asset]:
+        """
+        Get all currency assets.
 
-            # Bulk insert new entries
-            if to_insert:
-                session.bulk_save_objects(to_insert)
+        Args:
+            session (Session): SQLAlchemy session
 
-            # Bulk update existing entries
-            if to_update:
-                session.bulk_update_mappings(PriceHistory, to_update)
+        Returns:
+            List[Asset]: List of all currency assets
+        """
+        return session.query(Asset).filter(Asset.is_currency == True).all()
 
-    def get_all_assets(self) -> List[Asset]:
-        with self.session_scope() as session:
-            assets = session.query(Asset).all()
-            # Expunge all objects from the session
-            session.expunge_all()
-        return assets
-    
-    def get_all_currencies(self) -> List[Asset]:
-        with self.session_scope() as session:
-            currencies = session.query(Asset).filter(Asset.is_currency == True).all()
-            # Expunge all objects from the session
-            session.expunge_all()
-        return currencies
+    def get_last_price_date(self, session: Session, ticker: str) -> Optional[datetime]:
+        """
+        Get the date of the last price for a given asset.
 
-    def get_last_price_date(self, ticker: str) -> Optional[datetime]:
-        with self.session_scope() as session:
-            asset = session.query(Asset).filter(Asset.ticker == ticker).first()
-            if asset:
-                last_price = session.query(PriceHistory).filter(PriceHistory.asset_id == asset.id).order_by(PriceHistory.date.desc()).first()
-                return last_price.date if last_price else None
-            return None
-        
-    def get_action_type_by_name(self, name: str) -> Optional[ActionType]:
-        with self.session_scope() as session:
-            action_type = session.query(ActionType).filter(ActionType.name == name).first()
-            # Expunge all objects from the session
-            session.expunge_all()
-            return action_type
-        
-    def get_asset_by_code(self, code: str) -> Optional[Asset]:
-        with self.session_scope() as session:
-            asset = session.query(Asset).filter(Asset.code == code).first()
-            # Expunge all objects from the session
-            session.expunge_all()
-            return asset
-        
-    def get_portfolio_by_name(self, name: str) -> Optional[Portfolio]:
-        with self.session_scope() as session:
-            portfolio = session.query(Portfolio).filter(Portfolio.name == name).first()
-            # Expunge all objects from the session
-            session.expunge_all()
-            return portfolio
+        Args:
+            session (Session): SQLAlchemy session
+            ticker (str): Asset ticker
 
-    def get_unprocessed_actions(self) -> List[Action]:
-        with self.session_scope() as session:
-            actions = session.query(Action).filter(Action.is_processed == False).order_by(Action.date).all()
-            # Expunge all objects from the session
-            session.expunge_all()
-            return actions
-        
-    def update_portfolio_holdings_and_action(self, action: Action):
-        with self.session_scope() as session:
-            
-            # Get last quantity
-            quantity_old = (
-                session.query(PortfolioHolding.quantity_new)
-                .join(Action)
-                .filter(
-                    (Action.portfolio_id == action.portfolio_id) &
-                    (Action.asset_id == action.asset_id)
-                )
-                .order_by(PortfolioHolding.date.desc())
-                .first()
-                )
+        Returns:
+            Optional[datetime]: Date of the last price, or None if not found
+        """
+        asset = session.query(Asset).filter(Asset.ticker == ticker).first()
+        if asset:
+            last_price = session.query(PriceHistory).filter(PriceHistory.asset_id == asset.id).order_by(PriceHistory.date.desc()).first()
+            return last_price.date if last_price else None
+        return None
 
-            # Get the float value
-            quantity_old = quantity_old[0] if quantity_old else 0
+    def get_action_type_by_name(self, session: Session, name: str) -> Optional[ActionType]:
+        """
+        Get an action type by its name.
 
-            # Add or subtract from quantity_old
-            if action.action_type_id in (ActionTypeEnum.buy.value, ActionTypeEnum.dividend.value):
-                quantity_change = action.quantity
-            elif action.action_type_id == ActionTypeEnum.sell.value:
-                quantity_change = -action.quantity
-            else:
-                quantity_change = 0
+        Args:
+            session (Session): SQLAlchemy session
+            name (str): Name of the action type
 
-            # TODO: figure out why this does not work here, but works after i add the new entry to PortfolioHolding
-            # if action.action_type.name in ('buy', 'dividend'):
-            #     quantity_change = action.quantity
-            # elif action.action_type.name == 'sell':
-            #     quantity_change = -action.quantity
-            # else:
-            #     quantity_change = 0
+        Returns:
+            Optional[ActionType]: The action type, or None if not found
+        """
+        return session.query(ActionType).filter(ActionType.name == name).first()
 
-            # Add the new entry to PortfolioHolding
-            session.add(PortfolioHolding(
-                action_id=action.asset_id,
-                portfolio_id=action.portfolio_id,
-                asset_id=action.asset_id,
-                quantity_change=quantity_change,
-                quantity_new=quantity_old+quantity_change,
-                date=action.date,
-                action=action
-            ))
+    def get_asset_by_code(self, session: Session, code: str) -> Optional[Asset]:
+        """
+        Get an asset by its code.
 
-            # Update action as processed
-            session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
+        Args:
+            session (Session): SQLAlchemy session
+            code (str): Asset code
 
-        return
+        Returns:
+            Optional[Asset]: The asset, or None if not found
+        """
+        return session.query(Asset).filter(Asset.code == code).first()
 
-    def get_last_holdings_time_series_update(self) -> Optional[datetime]:
-        with self.session_scope() as session:
-            last_update = session.query(func.max(PortfolioHoldingsTimeSeries.date)).scalar()
-            return last_update.date() if last_update else None
+    def get_portfolio_by_name(self, session: Session, name: str) -> Optional[Portfolio]:
+        """
+        Get a portfolio by its name.
 
-    def clear_holdings_time_series(self):
-        with self.session_scope() as session:
-            session.query(PortfolioHoldingsTimeSeries).delete()
+        Args:
+            session (Session): SQLAlchemy session
+            name (str): Portfolio name
 
-    def get_earliest_action_date(self) -> datetime:
-        with self.session_scope() as session:
-            earliest_date = session.query(func.min(Action.date)).scalar()
-            return earliest_date.date() if earliest_date else datetime.now().date()
+        Returns:
+            Optional[Portfolio]: The portfolio, or None if not found
+        """
+        return session.query(Portfolio).filter(Portfolio.name == name).first()
 
-    def get_all_portfolios(self) -> List[Portfolio]:
-        with self.session_scope() as session:
-            portfolios = session.query(Portfolio).all()
-            session.expunge_all()
-        return portfolios
+    def get_unprocessed_actions(self, session: Session) -> List[Action]:
+        """
+        Get all unprocessed actions.
 
-    # def get_portfolio_asset_actions(self, portfolio_id: int, asset_id: int) -> List[Action]:
-    #     with self.session_scope() as session:
-    #         actions = session.query(Action).filter(
-    #             Action.portfolio_id == portfolio_id,
-    #             Action.asset_id == asset_id
-    #         ).order_by(Action.date).all()
-    #         session.expunge_all()
-    #     return actions
+        Args:
+            session (Session): SQLAlchemy session
 
-    # def get_portfolio_asset_actions(self, portfolio_id: int, asset_id: int) -> List[Action]:
-    #     with self.session_scope() as session:
-    #         actions = session.query(Action).options(
-    #             contains_eager(Action.action_type)
-    #         ).join(
-    #             Action.action_type
-    #         ).filter(
-    #             Action.portfolio_id == portfolio_id,
-    #             Action.asset_id == asset_id
-    #         ).order_by(Action.date).all()
-            
-    #         # Detach the objects from the session
-    #         for action in actions:
-    #             session.expunge(action)
-    #             session.expunge(action.action_type)
-    #     return actions
+        Returns:
+            List[Action]: List of unprocessed actions
+        """
+        return session.query(Action).filter(Action.is_processed == False).order_by(Action.date).all()
 
-    def get_portfolio_asset_actions(self, session, portfolio_id: int, asset_id: int) -> List[Action]:
+    def update_portfolio_holdings_and_action(self, session: Session, action: Action) -> None:
+        """
+        Update portfolio holdings based on an action and mark the action as processed.
+
+        Args:
+            session (Session): SQLAlchemy session
+            action (Action): The action to process
+        """
+        quantity_old = session.query(PortfolioHolding.quantity_new)\
+            .join(Action)\
+            .filter(
+                (Action.portfolio_id == action.portfolio_id) &
+                (Action.asset_id == action.asset_id)
+            )\
+            .order_by(PortfolioHolding.date.desc())\
+            .first()
+
+        quantity_old = quantity_old[0] if quantity_old else 0
+
+        if action.action_type_id in (ActionTypeEnum.buy.value, ActionTypeEnum.dividend.value):
+            quantity_change = action.quantity
+        elif action.action_type_id == ActionTypeEnum.sell.value:
+            quantity_change = -action.quantity
+        else:
+            quantity_change = 0
+
+        session.add(PortfolioHolding(
+            action_id=action.asset_id,
+            portfolio_id=action.portfolio_id,
+            asset_id=action.asset_id,
+            quantity_change=quantity_change,
+            quantity_new=quantity_old+quantity_change,
+            date=action.date,
+            action=action
+        ))
+
+        session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
+
+    def get_last_holdings_time_series_update(self, session: Session) -> Optional[datetime]:
+        """
+        Get the date of the last update to the holdings time series.
+
+        Args:
+            session (Session): SQLAlchemy session
+
+        Returns:
+            Optional[datetime]: Date of the last update, or None if no updates
+        """
+        last_update = session.query(func.max(PortfolioHoldingsTimeSeries.date)).scalar()
+        return last_update.date() if last_update else None
+
+    def clear_holdings_time_series(self, session: Session) -> None:
+        """
+        Clear all entries from the holdings time series.
+
+        Args:
+            session (Session): SQLAlchemy session
+        """
+        session.query(PortfolioHoldingsTimeSeries).delete()
+
+    def get_earliest_action_date(self, session: Session) -> datetime:
+        """
+        Get the date of the earliest action.
+
+        Args:
+            session (Session): SQLAlchemy session
+
+        Returns:
+            datetime: Date of the earliest action, or current date if no actions
+        """
+        earliest_date = session.query(func.min(Action.date)).scalar()
+        return earliest_date.date() if earliest_date else datetime.now().date()
+
+    def get_portfolios(self, session: Session) -> List[Portfolio]:
+        """
+        Get all portfolios.
+
+        Args:
+            session (Session): SQLAlchemy session
+
+        Returns:
+            List[Portfolio]: List of all portfolios
+        """
+        return session.query(Portfolio).all()
+
+    def get_portfolio_assets(self, session: Session, portfolio_id: int) -> List[Asset]:
+        """
+        Get all unique assets associated with a specific portfolio.
+
+        This method retrieves all assets that have been involved in any action
+        within the specified portfolio.
+
+        Args:
+            session (Session): SQLAlchemy session
+            portfolio_id (int): ID of the portfolio
+
+        Returns:
+            List[Asset]: A list of unique Asset objects associated with the portfolio
+        """
+        # TODO: this is wrong, no join on Action
+        return session.query(Asset).join(Action).filter(Action.portfolio_id == portfolio_id).distinct().all()
+
+    def get_portfolio_asset_actions(self, session: Session, portfolio_id: int, asset_id: int) -> List[Action]:
+        """
+        Get all actions for a specific asset in a specific portfolio.
+
+        Args:
+            session (Session): SQLAlchemy session
+            portfolio_id (int): ID of the portfolio
+            asset_id (int): ID of the asset
+
+        Returns:
+            List[Action]: List of actions
+        """
         return session.query(Action).options(
             joinedload(Action.action_type)
         ).filter(
@@ -277,31 +368,64 @@ class DatabaseAccess:
             Action.asset_id == asset_id
         ).order_by(Action.date).all()
 
+    def store_holdings_time_series(self, session: Session, holdings_data: List[Dict]) -> None:
+        """
+        Store or update portfolio holdings time series data.
 
-    def merge_portfolio_holdings_time_series(self, holdings: List[PortfolioHoldingsTimeSeries]):
-        with self.session_scope() as session:
-            for holding in holdings:
-                existing = session.query(PortfolioHoldingsTimeSeries).filter(
-                    PortfolioHoldingsTimeSeries.portfolio_id == holding.portfolio_id,
-                    PortfolioHoldingsTimeSeries.asset_id == holding.asset_id,
-                    PortfolioHoldingsTimeSeries.date == holding.date
-                ).first()
-                if existing:
-                    existing.quantity = holding.quantity
-                else:
-                    session.add(holding)
+        Args:
+            session (Session): SQLAlchemy session
+            holdings_data (List[Dict]): List of dictionaries containing holdings data to store or update
 
-    def get_portfolio_holdings_time_series(self, portfolio_id: int, asset_id: int, start_date: datetime, end_date: datetime) -> List[PortfolioHoldingsTimeSeries]:
-        with self.session_scope() as session:
-            holdings = session.query(PortfolioHoldingsTimeSeries).filter(
-                PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
-                PortfolioHoldingsTimeSeries.asset_id == asset_id,
-                PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
-            ).order_by(PortfolioHoldingsTimeSeries.date).all()
-            session.expunge_all()
-        return holdings
+        Returns:
+            None
+        """
+        for holding in holdings_data:
+            session.merge(PortfolioHoldingsTimeSeries(**holding))
 
-# Usage example
+    # def store_holdings_time_series(self, session: Session, holdings: List[PortfolioHoldingsTimeSeries]) -> None:
+    #     """
+    #     Merge new holdings into the time series, updating existing entries or adding new ones.
+
+    #     Args:
+    #         session (Session): SQLAlchemy session
+    #         holdings (List[PortfolioHoldingsTimeSeries]): List of holdings to merge
+    #     """
+    #     for holding in holdings:
+    #         existing = session.query(PortfolioHoldingsTimeSeries).filter(
+    #             PortfolioHoldingsTimeSeries.portfolio_id == holding.portfolio_id,
+    #             PortfolioHoldingsTimeSeries.asset_id == holding.asset_id,
+    #             PortfolioHoldingsTimeSeries.date == holding.date
+    #         ).first()
+    #         if existing:
+    #             existing.quantity = holding.quantity
+    #         else:
+    #             session.add(holding)
+
+    def get_portfolio_holdings_time_series(self, session: Session, portfolio_id: int, asset_id: int, start_date: datetime, end_date: datetime) -> List[PortfolioHoldingsTimeSeries]:
+        """
+        Get the holdings time series for a specific asset in a specific portfolio within a date range.
+
+        Args:
+            session (Session): SQLAlchemy session
+            portfolio_id (int): ID of the portfolio
+            asset_id (int): ID of the asset
+            start_date (datetime): Start date of the range
+            end_date (datetime): End date of the range
+
+        Returns:
+            List[PortfolioHoldingsTimeSeries]: List of holdings time series entries
+        """
+        return session.query(PortfolioHoldingsTimeSeries).filter(
+            PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id == asset_id,
+            PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
+        ).order_by(PortfolioHoldingsTimeSeries.date).all()
+
+
 if __name__ == "__main__":
-    db_access = DatabaseAccess()
-    db_access.init_db()
+
+    db_access = DatabaseAccess()	
+    with session_scope() as session:
+        portfolio = db_access.get_portfolio_by_name(session, 'Alexander')
+
+    print('done')

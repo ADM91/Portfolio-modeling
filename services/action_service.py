@@ -2,101 +2,115 @@
 
 import logging
 import pandas as pd
-from typing import List, Dict, Optional
+from typing import List, Dict
+from sqlalchemy.orm import Session
 
-from database.access_v2 import (
-    session_scope, with_session, get_portfolio_by_name, 
-    get_action_type_by_name, get_asset_by_code, insert_if_not_exists
-)
-from database.entities import Action, Portfolio, ActionType, Asset
+from database.access import with_session, DatabaseAccess
+from database.entities import Action
 
-
-@with_session
-def read_actions_from_excel_to_action_list(session, excel_path: str) -> list[Action]:
+class ActionService:
     """
-    Loads actions from excel, interprets and validates them
+    Class for managing actions related to portfolios.
     """
-    action_list = []
+    def __init__(self, db_access: DatabaseAccess):
+        self.db_access = db_access
 
-    try:
-        # Read actions from excel
-        action_df = pd.read_excel(excel_path)
-    except Exception as e:
-        logging.error(f"Failed to read Excel file: {e}")
-        return action_list
+    @with_session
+    def read_actions_from_excel(self, session: Session, excel_path: str) -> List[Dict]:
+        """
+        Loads actions from excel, interprets and validates them.
         
-    for _, row in action_df.iterrows():
+        :param excel_path: Path to the Excel file
+        :return: List of dictionaries containing action data
+        """
+        action_list = []
+
         try:
-            # Convert date string to datetime object
-            row['date'] =  pd.to_datetime(row['Date'], dayfirst=True, format='mixed', errors='coerce')
-            row['date'] = pd.to_datetime(row['date'].date())
-
-            # Get portfolio_id based on portfolio name
-            portfolio = get_portfolio_by_name(session, row['Portfolio'])
-            if portfolio:
-                row['portfolio_id'] = portfolio.id
-            else:
-                raise ValueError(f"Invalid portfolio name: {row['portfolio_name']}")
-
-            # Get action_type_id based on action_type name
-            action_type = get_action_type_by_name(session, row['Action'])
-            if action_type:
-                row['action_type_id'] = action_type.id
-            else:
-                raise ValueError(f"Invalid action type: {row['action_type']}")
-
-            # Get asset_id based on asset symbol
-            asset = get_asset_by_code(session, row['Asset'])
-            if asset:
-                row['asset_id'] = asset.id
-            else:
-                raise ValueError(f"Invalid asset symbol: {row['Asset']}")
-
-            # Get currency_id based on currency symbol
-            currency = get_asset_by_code(session, row['Currency'])
-            if currency:
-                row['currency_id'] = currency.id
-            else:
-                raise ValueError(f"Invalid currency symbol: {row['Currency']}")
-
-            # Remove unnecessary columns
-            row = row.drop(['Asset', 'Currency', 'Action', 'Portfolio'])
-
-            # add is_processed
-            row['is_processed'] = False
-
-            # rename columns to match database
-            row = row.rename({'Date': 'date', 'Price': 'price', 'Quantity': 'quantity', 'Fee': 'fee', 'Platform': 'platform', 'Comment': 'comment'})
-
-            # convert any nan values to None
-            row = row.where((pd.notnull(row)), None)
-
-            # Convert the row to a dictionary and then create an Action instance
-            action_list.append(row.to_dict())
-
+            action_df = pd.read_excel(excel_path)
         except Exception as e:
-            logging.error(f"Error converting row to Action: {e}")
-            logging.error(f"action: {row}")
+            logging.error(f"Failed to read Excel file: {e}")
+            return action_list
         
-    return action_list
+        for _, row in action_df.iterrows():
+            try:
+                row['date'] = pd.to_datetime(row['Date'], dayfirst=True, format='mixed', errors='coerce')
+                row['date'] = pd.to_datetime(row['date'].date())
 
-@with_session
-def insert_actions(session, actions_data: List[dict]):
-    """
-    Inserts an action into the database if it doesn't already exist.
-    """
-    filter_fields=['portfolio_id', 'action_type_id', 'date', 'asset_id', 'currency_id', 'price', 'quantity']
-    insert_if_not_exists(session, Action, actions_data, filter_fields)
+                portfolio = self.db_access.get_portfolio_by_name(session, row['Portfolio'])
+                if portfolio:
+                    row['portfolio_id'] = portfolio.id
+                else:
+                    raise ValueError(f"Invalid portfolio name: {row['Portfolio']}")
 
-def update_action():
-    pass
+                action_type = self.db_access.get_action_type_by_name(session, row['Action'])
+                if action_type:
+                    row['action_type_id'] = action_type.id
+                else:
+                    raise ValueError(f"Invalid action type: {row['Action']}")
 
-def delete_action():
-    pass
+                asset = self.db_access.get_asset_by_code(session, row['Asset'])
+                if asset:
+                    row['asset_id'] = asset.id
+                else:
+                    raise ValueError(f"Invalid asset symbol: {row['Asset']}")
+
+                currency = self.db_access.get_asset_by_code(session, row['Currency'])
+                if currency:
+                    row['currency_id'] = currency.id
+                else:
+                    raise ValueError(f"Invalid currency symbol: {row['Currency']}")
+
+                row = row.drop(['Asset', 'Currency', 'Action', 'Portfolio'])
+                row['is_processed'] = False
+                row = row.rename({'Date': 'date', 'Price': 'price', 'Quantity': 'quantity', 'Fee': 'fee', 'Platform': 'platform', 'Comment': 'comment'})
+                row = row.where((pd.notnull(row)), None)
+
+                action_list.append(row.to_dict())
+
+            except Exception as e:
+                logging.error(f"Error converting row to Action: {e}")
+                logging.error(f"action: {row}")
+        
+        return action_list
+
+    @with_session
+    def insert_actions(self, session: Session, actions_data: List[Dict]) -> None:
+        """
+        Inserts actions into the database if they don't already exist.
+        
+        :param actions_data: List of dictionaries containing action data
+        """
+        filter_fields = ['portfolio_id', 'action_type_id', 'date', 'asset_id', 'currency_id', 'price', 'quantity']
+        self.db_access.insert_if_not_exists(session, Action, actions_data, filter_fields)
+
+    @with_session
+    def update_action(self, session: Session, action_id: int, updated_data: Dict) -> None:
+        """
+        Updates an existing action in the database.
+        
+        :param action_id: ID of the action to update
+        :param updated_data: Dictionary containing updated action data
+        """
+        # Implementation for updating an action
+        pass
+
+    @with_session
+    def delete_action(self, session: Session, action_id: int) -> None:
+        """
+        Deletes an action from the database.
+        
+        :param action_id: ID of the action to delete
+        """
+        # Implementation for deleting an action
+        pass
 
 
+# Usage example:
 if __name__ == "__main__":
-    actions = read_actions_from_excel_to_action_list("_junk/test_action_data.xlsx")
-    insert_actions(actions)
+    db_access = DatabaseAccess()
+    action_service = ActionService(db_access)
+    
+    actions = action_service.read_actions_from_excel("_junk/test_action_data.xlsx")
+    action_service.insert_actions(actions)
 
     print('done')

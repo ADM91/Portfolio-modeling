@@ -4,10 +4,14 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import pandas as pd
 
-from database.access_v2 import with_session, get_all_assets, get_last_price_date, add_price_history
+from database.access import with_session, DatabaseAccess
 
 
 class YFinanceService:
+
+    def __init__(self, db_access: DatabaseAccess) -> None:
+        self.db_access = db_access
+
     """
     Class for fetching asset data from yFinance API and storing it in the database.
     """
@@ -69,14 +73,14 @@ class YFinanceService:
 
     @with_session
     def update_db_with_asset_data(self, session):
-        asset_list = get_all_assets(session)
+        asset_list = self.db_access.get_all_assets(session)
 
         # omit USD - we assume always USD = 1
         asset_list = [asset for asset in asset_list if asset.code != 'USD']
         
         for asset in asset_list:
             # Get the most recent date in the database for this asset
-            last_date = get_last_price_date(session, asset.ticker)
+            last_date = self.db_access.get_last_price_date(session, asset.ticker)
             
             # If we have no data, start from 5 years ago, otherwise start from the day after the last date
             start_date = last_date if last_date else datetime.now() - timedelta(days=5*365)
@@ -97,7 +101,7 @@ class YFinanceService:
                     if not price_data.empty:
                         # Prepare and insert price history data
                         price_history = self.prepare_price_history_for_db(price_data)
-                        add_price_history(session, asset.ticker, price_history)
+                        self.db_access.add_price_history(session, asset.ticker, price_history)
                         logging.info(f"Updated {asset.ticker} with {len(price_history)} new entries")
                     else:
                         logging.info(f"No new data for {asset.ticker}")

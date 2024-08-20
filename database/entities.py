@@ -70,7 +70,6 @@ class Asset(Base):
     portfolio_holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
     holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="asset")
 
-
 class PortfolioHoldingsTimeSeries(Base):
     __tablename__ = 'portfolio_holdings_time_series'
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
