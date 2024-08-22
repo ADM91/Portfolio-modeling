@@ -421,6 +421,59 @@ class DatabaseAccess:
             PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
         ).order_by(PortfolioHoldingsTimeSeries.date).all()
 
+def update_holding_time_series(self, session: Session, action: Action, end_date: datetime) -> None:
+    """
+    Forward fill the holding time series for a specific action up to the end date.
+
+    Args:
+        session (Session): SQLAlchemy session
+        action (Action): The action to forward fill from
+        end_date (datetime): The end date to fill up to
+
+    Returns:
+        None
+    """
+    # Get the latest holding entry for this action
+    latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
+        PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+        PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+        PortfolioHoldingsTimeSeries.date <= action.date
+    ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
+
+    # If no previous holding exists, use the action's quantity
+    if latest_holding:
+        quantity = latest_holding.quantity 
+    else:
+        if action.action_type.name in ('buy', 'dividend'):
+            quantity = action.quantity
+        elif action.action_type.name == 'sell':
+            quantity = -action.quantity
+
+    # Generate date range from the day after the action to the end date
+    current_date = action.date + timedelta(days=1)
+    while current_date <= end_date:
+        # Check if an entry already exists for this date
+        existing_entry = session.query(PortfolioHoldingsTimeSeries).filter(
+            PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+            PortfolioHoldingsTimeSeries.date == current_date
+        ).first()
+
+        if existing_entry:
+            # If an entry exists, update its quantity
+            existing_entry.quantity = quantity
+        else:
+            # If no entry exists, create a new one
+            new_entry = PortfolioHoldingsTimeSeries(
+                portfolio_id=action.portfolio_id,
+                asset_id=action.asset_id,
+                date=current_date,
+                quantity=quantity
+            )
+            session.add(new_entry)
+
+        current_date += timedelta(days=1)
+
 
 if __name__ == "__main__":
 

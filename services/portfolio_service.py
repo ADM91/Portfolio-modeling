@@ -5,8 +5,8 @@ from typing import List, Dict
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from database.entities import PortfolioHoldingsTimeSeries, Asset, Portfolio
-from database.access import with_session, DatabaseAccess
+from database.entities import PortfolioHoldingsTimeSeries, Asset, Portfolio, Action
+from database.access import with_session, session_scope, DatabaseAccess
 
 
 class PortfolioService:
@@ -22,44 +22,70 @@ class PortfolioService:
         ts_1.drop(columns=['quantity_x', 'quantity_y'], inplace=True)
         return ts_1
 
-    @with_session
     def process_actions(self, session: Session):
 
         # Get unprocessed actions
-        unprocessed_actions = self.db_access.get_unprocessed_actions(session)
+        with session_scope() as session:
+            unprocessed_actions = self.db_access.get_unprocessed_actions(session)
 
         # Process unprocessed actions, update portfolio holdings  
+        current_date = datetime.now().date()
         for action in unprocessed_actions:
 
-            # run transaction, update portfolio holdings and action as processed
-            self.db_access.update_portfolio_holdings_and_action(session, action)
-        
-        # Update time series
-        self.update_holdings_time_series(session)
+            # single transaction for update holdings and update holdings time series
+            with session_scope() as session:
+
+                # run transaction, update portfolio holdings and action as processed
+                self.db_access.update_portfolio_holdings_and_action(session, action)
+            
+                # front fill the existing time series to current date, if it doesnt exist, create with quantity 0
+                
+                self.db_access.ffill_holding_time_series(session, action, current_date)
+
+                # additive update of holdings time series
+                if action.action_type.name in ('buy', 'dividend'):
+                    quantity= action.quantity
+                elif action.action_type.name == 'sell':
+                    quantity = -action.quantity
+                self.db_access.update_holding_time_series(session, action.date, datetime.now().date(), quantity)
 
         return
     
-    def update_holdings_time_series(self, session: Session):
-        last_update = self.db_access.get_last_holdings_time_series_update(session)
-        end_date = datetime.now().date()
+    # def update_holdings_time_series(self, session: Session):
+    #     last_update = self.db_access.get_last_holdings_time_series_update(session)
+    #     end_date = datetime.now().date()
         
-        if last_update:
-            start_date = last_update + timedelta(days=1)
-        else:
-            start_date = self.db_access.get_earliest_action_date(session)
+    #     if last_update:
+    #         start_date = last_update + timedelta(days=1)
+    #     else:
+    #         start_date = self.db_access.get_earliest_action_date(session)
 
-        if start_date < end_date:
-            self.generate_holdings_time_series(session, start_date, end_date)
+    #     if start_date < end_date:
+    #         self.generate_holdings_time_series(session, start_date, end_date)
 
-    def generate_holdings_time_series(self, session: Session, start_date: datetime, end_date: datetime):
-        portfolios = self.db_access.get_portfolios(session)
+    # def generate_holdings_time_series(self, session: Session, start_date: datetime, end_date: datetime):
+        # portfolios = self.db_access.get_portfolios(session)
         
-        for portfolio in portfolios:
-            assets = self.db_access.get_portfolio_assets(session, portfolio.id)
-            holdings_series = self._generate_portfolio_holdings(session, portfolio.id, assets, start_date, end_date)
-            self._store_holdings_time_series(session, portfolio.id, holdings_series)
+        # for portfolio in portfolios:
+        #     assets = self.db_access.get_portfolio_assets(session, portfolio.id)
+        #     holdings_series = self._generate_portfolio_holdings(session, portfolio.id, assets, start_date, end_date)
+        #     self._store_holdings_time_series(session, portfolio.id, holdings_series)
 
-    def _generate_portfolio_holdings(self, session: Session, portfolio_id: int, assets: List[Asset], start_date: datetime, end_date: datetime) -> Dict[int, pd.DataFrame]:
+    def _generate_holdings_time_series(self, action: Action) -> Dict[int, pd.DataFrame]:
+
+        date_range = pd.date_range(start=action.date, end=datetime.now().date(), freq='D')
+        df = pd.DataFrame(index=date_range, columns=['quantity'])
+        df['quantity'] = 0
+
+        if action.action_type.name in ('buy', 'dividend'):
+            df.loc[action.date:, 'quantity'] += action.quantity
+        elif action.action_type.name == 'sell':
+            df.loc[action.date:, 'quantity'] -= action.quantity
+
+        return df
+
+
+    def _generate_portfolio_holdings_old(self, session: Session, portfolio_id: int, assets: List[Asset], start_date: datetime, end_date: datetime) -> Dict[int, pd.DataFrame]:
         holdings_series = {}
         date_range = pd.date_range(start=start_date, end=end_date, freq='D')
         
@@ -125,7 +151,6 @@ class PortfolioService:
         pass
 
 
-
 if __name__ == "__main__":
 
     db_access = DatabaseAccess()
@@ -133,141 +158,3 @@ if __name__ == "__main__":
     portfolio_service.process_actions()
 
     print('done')
-
-
-
-    # def get_portfolio_metrics(self, portfolio_id, start_date=None, end_date=None):
-    #     with self.db_manager.get_connection() as conn:
-    #         query = '''
-    #             SELECT date, total_value, daily_return, cumulative_return, volatility, sharpe_ratio
-    #             FROM portfolio_metrics
-    #             WHERE portfolio_id = ?
-    #         '''
-    #         params = [portfolio_id]
-    #         if start_date:
-    #             query += ' AND date >= ?'
-    #             params.append(start_date)
-    #         if end_date:
-    #             query += ' AND date <= ?'
-    #             params.append(end_date)
-    #         query += ' ORDER BY date'
-            
-    #         df = pd.read_sql_query(query, conn, params=params)
-    #         df['date'] = pd.to_datetime(df['date'])
-    #         df.set_index('date', inplace=True)
-    #         return df
-        
-
-    # def process_activity(self, activity):
-    #     """
-    #     Processes a single action by updating or creating portfolios and assets accordingly.
-    #     """
-    #     # portfolio_name = activity['PortfolioName']
-    #     # asset_name = activity['AssetName']
-    #     # action_type = activity['ActionType']
-    #     # date = activity['Date']
-    #     # amount = activity['Amount']
-    #     # currency = activity['Currency']
-    #     # remarks = activity.get('Remarks', '')
-
-    #     # Retrieve or create the Portfolio object
-    #     portfolio = self.portfolios.get(activity.Account)
-    #     if portfolio is None:
-    #         portfolio = Portfolio(activity.Account)
-    #         self.portfolios[activity.Account] = portfolio
-
-    #     # Retrieve or create the Asset object
-    #     asset = portfolio.get_asset(activity.Asset)
-    #     if asset is None:
-    #         asset = Asset(activity.Asset, ticker_symbol='')  # Assuming ticker_symbol or similar identifier is available
-    #         portfolio.add_asset(asset)
-
-    #     # Depending on action type, update the asset (and portfolio if necessary)
-    #     # if action_type == 'Transaction':
-    #     #     asset.add_transaction(Act(date=date, amount=amount, currency=currency, remarks=remarks))
-    #     # Add more conditions for different action types like 'Dividend', 'PriceChange', etc.
-
-    #     # Optionally, update portfolio-level metrics or balances if necessary
-
-    # def update_portfolio_analytics(self):
-    #     for portfolio_id, portfolio in self.portfolios.items():
-    #         activities_df = self._get_portfolio_activities(portfolio_id)
-    #         self._update_portfolio_holdings(portfolio_id, activities_df)
-    #         self._calculate_portfolio_metrics(portfolio_id)
-
-    # def _update_portfolio_holdings(self, portfolio_id, activities_df):
-    #     holdings = self._calculate_daily_holdings(activities_df)
-        
-        # with self.db_manager.get_connection() as conn:
-        #     holdings.to_sql('portfolio_holdings', conn, if_exists='replace', index=False)
-
-    # def _calculate_daily_holdings(self, activities_df):
-    #     # Logic to transform activities into daily holdings
-    #     pass
-
-    # def _calculate_portfolio_metrics(self, portfolio_id, start_date=None, end_date=None):
-    #     holdings = self._get_portfolio_holdings(portfolio_id, start_date, end_date)
-    #     prices = self._get_asset_prices(portfolio_id, start_date, end_date)
-
-    #     portfolio_value = self._calculate_portfolio_value(holdings, prices)
-
-    #     metrics = pd.DataFrame(index=portfolio_value.index)
-    #     metrics['total_value'] = portfolio_value
-    #     metrics['daily_return'] = portfolio_value.pct_change()
-    #     metrics['cumulative_return'] = (1 + metrics['daily_return']).cumprod() - 1
-    #     metrics['volatility'] = metrics['daily_return'].rolling(window=30).std() * np.sqrt(252)
-    #     risk_free_rate = 0.02
-    #     metrics['sharpe_ratio'] = (metrics['daily_return'].mean() * 252 - risk_free_rate) / (metrics['daily_return'].std() * np.sqrt(252))
-
-    #     with self.db_manager.get_connection() as conn:
-    #         metrics.to_sql('portfolio_metrics', conn, if_exists='replace', index=False)
-
-    # def process_actions(self):
-
-    #     # Get actions
-    #     actions_unprocessed = self.db_access.get_unprocessed_actions()
-
-    #     # Holdings time series are generated using pandas dataframes
-    #     holdings_dfs = {}
-
-    #     # Process unprocessed actions, update portfolio holdings  
-    #     # TODO need to track action processing so i can update is_processed flag  
-    #     for action in actions_unprocessed:
-            
-    #         # create df if it doesnt exist
-    #         if holdings_dfs.get(action.portfolio_id) is None:
-    #             holdings_dfs[action.portfolio_id] = {}
-    #         if holdings_dfs[action.portfolio_id].get(action.asset_id) is None:
-    #             holdings_dfs[action.portfolio_id][action.asset_id] = None
-
-    #         # if action is buy or dividend
-    #         if action.action_type_id in (1,3):  
-
-    #             # create series
-    #             in_kind_ts = pd.DataFrame(pd.date_range(start=action.date, end=datetime.now(), freq='D'), columns=['date'])
-    #             in_kind_ts['quantity'] = action.quantity  
-
-    #             # if there is alread a series under this portfolio and asset, aggregate them
-    #             if holdings_dfs[action.portfolio_id][action.asset_id] is not None:
-    #                 # merge dataframes
-    #                 holdings_dfs[action.portfolio_id][action.asset_id] = self.merge_time_series(holdings_dfs[action.portfolio_id][action.asset_id], in_kind_ts)
-
-    #             else:
-    #                 holdings_dfs[action.portfolio_id][action.asset_id] = in_kind_ts
-
-    #         elif action.action_type_id == 2:
-
-    #             # create series (sell will never start from 0)
-    #             in_kind_ts = pd.DataFrame(pd.date_range(start=action.date, end=datetime.now(), freq='D'), columns=['date'])
-    #             in_kind_ts['quantity'] = -action.quantity
-
-    #             # merge dataframes
-    #             holdings_dfs[action.portfolio_id][action.asset_id] = self.merge_time_series(holdings_dfs[action.portfolio_id][action.asset_id], in_kind_ts)
-  
-
-    #     # Update portfolio holdings in database
-    #     for portfolio_id in holdings_dfs:
-    #         for asset_id in holdings_dfs[portfolio_id]:
-    #             self.db_access.update_portfolio_holdings(portfolio_id, asset_id, holdings_dfs[portfolio_id][asset_id], datetime.now())
-
-    #     return
