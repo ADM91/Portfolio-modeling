@@ -22,34 +22,6 @@ class PortfolioService:
         ts_1.drop(columns=['quantity_x', 'quantity_y'], inplace=True)
         return ts_1
 
-    def process_actions(self, session: Session):
-
-        # Get unprocessed actions
-        with session_scope() as session:
-            unprocessed_actions = self.db_access.get_unprocessed_actions(session)
-
-        # Process unprocessed actions, update portfolio holdings  
-        current_date = datetime.now().date()
-        for action in unprocessed_actions:
-
-            # single transaction for update holdings and update holdings time series
-            with session_scope() as session:
-
-                # run transaction, update portfolio holdings and action as processed
-                self.db_access.update_portfolio_holdings_and_action(session, action)
-            
-                # front fill the existing time series to current date, if it doesnt exist, create with quantity 0
-                
-                self.db_access.ffill_holding_time_series(session, action, current_date)
-
-                # additive update of holdings time series
-                if action.action_type.name in ('buy', 'dividend'):
-                    quantity= action.quantity
-                elif action.action_type.name == 'sell':
-                    quantity = -action.quantity
-                self.db_access.update_holding_time_series(session, action.date, datetime.now().date(), quantity)
-
-        return
     
     # def update_holdings_time_series(self, session: Session):
     #     last_update = self.db_access.get_last_holdings_time_series_update(session)
@@ -71,54 +43,54 @@ class PortfolioService:
         #     holdings_series = self._generate_portfolio_holdings(session, portfolio.id, assets, start_date, end_date)
         #     self._store_holdings_time_series(session, portfolio.id, holdings_series)
 
-    def _generate_holdings_time_series(self, action: Action) -> Dict[int, pd.DataFrame]:
+    # def _generate_holdings_time_series(self, action: Action) -> Dict[int, pd.DataFrame]:
 
-        date_range = pd.date_range(start=action.date, end=datetime.now().date(), freq='D')
-        df = pd.DataFrame(index=date_range, columns=['quantity'])
-        df['quantity'] = 0
+    #     date_range = pd.date_range(start=action.date, end=datetime.now().date(), freq='D')
+    #     df = pd.DataFrame(index=date_range, columns=['quantity'])
+    #     df['quantity'] = 0
 
-        if action.action_type.name in ('buy', 'dividend'):
-            df.loc[action.date:, 'quantity'] += action.quantity
-        elif action.action_type.name == 'sell':
-            df.loc[action.date:, 'quantity'] -= action.quantity
+    #     if action.action_type.name in ('buy', 'dividend'):
+    #         df.loc[action.date:, 'quantity'] += action.quantity
+    #     elif action.action_type.name == 'sell':
+    #         df.loc[action.date:, 'quantity'] -= action.quantity
 
-        return df
+    #     return df
 
 
-    def _generate_portfolio_holdings_old(self, session: Session, portfolio_id: int, assets: List[Asset], start_date: datetime, end_date: datetime) -> Dict[int, pd.DataFrame]:
-        holdings_series = {}
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    # def _generate_portfolio_holdings_old(self, session: Session, portfolio_id: int, assets: List[Asset], start_date: datetime, end_date: datetime) -> Dict[int, pd.DataFrame]:
+    #     holdings_series = {}
+    #     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
         
-        for asset in assets:
-            actions = self.db_access.get_portfolio_asset_actions(session, portfolio_id, asset.id)
-            if not actions:
-                continue
+    #     for asset in assets:
+    #         actions = self.db_access.get_portfolio_asset_actions(session, portfolio_id, asset.id)
+    #         if not actions:
+    #             continue
 
-            df = pd.DataFrame(index=date_range, columns=['quantity'])
-            df['quantity'] = 0
+    #         df = pd.DataFrame(index=date_range, columns=['quantity'])
+    #         df['quantity'] = 0
 
-            for action in actions:
-                if action.action_type.name in ('buy', 'dividend'):
-                    df.loc[action.date:, 'quantity'] += action.quantity
-                elif action.action_type.name == 'sell':
-                    df.loc[action.date:, 'quantity'] -= action.quantity
+    #         for action in actions:
+    #             if action.action_type.name in ('buy', 'dividend'):
+    #                 df.loc[action.date:, 'quantity'] += action.quantity
+    #             elif action.action_type.name == 'sell':
+    #                 df.loc[action.date:, 'quantity'] -= action.quantity
 
-            holdings_series[asset.id] = df.fillna(method='ffill').fillna(0)
+    #         holdings_series[asset.id] = df.fillna(method='ffill').fillna(0)
 
-        return holdings_series
+    #     return holdings_series
 
-    def _store_holdings_time_series(self, session: Session, portfolio_id: int, holdings_series: Dict[int, pd.DataFrame]):
-        holdings_data = []
-        for asset_id, df in holdings_series.items():
-            for date, row in df.iterrows():
-                holdings_data.append({
-                    'portfolio_id': portfolio_id,
-                    'asset_id': asset_id,
-                    'date': date,
-                    'quantity': row['quantity']
-                })
+    # def _store_holdings_time_series(self, session: Session, portfolio_id: int, holdings_series: Dict[int, pd.DataFrame]):
+    #     holdings_data = []
+    #     for asset_id, df in holdings_series.items():
+    #         for date, row in df.iterrows():
+    #             holdings_data.append({
+    #                 'portfolio_id': portfolio_id,
+    #                 'asset_id': asset_id,
+    #                 'date': date,
+    #                 'quantity': row['quantity']
+    #             })
         
-        self.db_access.store_holdings_time_series(session, holdings_data)
+    #     self.db_access.store_holdings_time_series(session, holdings_data)
 
     def regenerate_holdings_time_series(self):
         self.db_access.clear_holdings_time_series()

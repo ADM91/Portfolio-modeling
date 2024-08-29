@@ -4,9 +4,12 @@ import logging
 import pandas as pd
 from typing import List, Dict
 from sqlalchemy.orm import Session
+from datetime import datetime
+import time
 
 from database.access import with_session, DatabaseAccess
 from database.entities import Action
+
 
 class ActionService:
     """
@@ -104,13 +107,43 @@ class ActionService:
         # Implementation for deleting an action
         pass
 
+    @with_session
+    def process_actions(self, session: Session):
+
+        # Get unprocessed actions
+        unprocessed_actions = self.db_access.get_unprocessed_actions(session)
+
+        # Process unprocessed actions, update portfolio holdings  
+        for action in unprocessed_actions:
+
+            # Update portfolio holdings and action as processed
+            self.db_access.update_portfolio_holdings_and_action(session, action)
+            
+            start_time = time.time()
+            self.db_access.update_holding_time_series_ffill(session, action, datetime.now().date())
+            end_time = time.time()
+            runtime = end_time - start_time
+            print(f"Runtime for update_holding_time_series_ffill: {runtime:.3f} seconds")
+
+            # Update time series in-kind holding
+            start_time = time.time()
+            self.db_access.update_holding_time_series_vectorized(session, action, datetime.now().date())
+            end_time = time.time()
+
+            runtime = end_time - start_time
+            print(f"Runtime for update_holding_time_series: {runtime:.3f} seconds")
+
+        return
+
 
 # Usage example:
 if __name__ == "__main__":
     db_access = DatabaseAccess()
     action_service = ActionService(db_access)
     
-    actions = action_service.read_actions_from_excel("_junk/test_action_data.xlsx")
-    action_service.insert_actions(actions)
+    # actions = action_service.read_actions_from_excel("_junk/test_action_data.xlsx")
+    # action_service.insert_actions(actions)
+    action_service.process_actions()
+    
 
     print('done')

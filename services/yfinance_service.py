@@ -3,6 +3,7 @@ import logging
 from datetime import datetime, timedelta
 import yfinance as yf
 import pandas as pd
+from sqlalchemy.orm import Session
 
 from database.access import with_session, DatabaseAccess
 
@@ -72,7 +73,7 @@ class YFinanceService:
         return price_history
 
     @with_session
-    def update_db_with_asset_data(self, session):
+    def update_db_with_asset_data(self, session: Session):
         asset_list = self.db_access.get_all_assets(session)
 
         # omit USD - we assume always USD = 1

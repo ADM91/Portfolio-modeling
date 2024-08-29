@@ -21,10 +21,11 @@ def startup():
     action_service = ActionService(db_access)
     actions = action_service.read_actions_from_excel("_junk/test_action_data.xlsx")
     action_service.insert_actions(actions)  # TODO: this reinserts existing actions
+    action_service.process_actions()
 
     # # PortfolioService update portfolio holdings data
-    portfolio_service = PortfolioService(db_access)
-    portfolio_service.process_actions()
+    # portfolio_service = PortfolioService(db_access)
+    # portfolio_service.process_actions()
     
     # TODO next step: mechanism to produce time series for portfolio holdings
         # Need selection of base currency and conversion of all asset values to the base currency.

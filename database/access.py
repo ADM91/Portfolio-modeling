@@ -1,12 +1,14 @@
 
 import os
 from contextlib import contextmanager
-from sqlalchemy import create_engine, select, and_, func
+from sqlalchemy import create_engine, and_, func
+from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, joinedload, Session
 from typing import List, Dict, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
+import pandas as pd
 
 from database.entities import *
 
@@ -421,59 +423,145 @@ class DatabaseAccess:
             PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
         ).order_by(PortfolioHoldingsTimeSeries.date).all()
 
-def update_holding_time_series(self, session: Session, action: Action, end_date: datetime) -> None:
-    """
-    Forward fill the holding time series for a specific action up to the end date.
+    def update_holding_time_series(self, session: Session, action: Action, end_date: datetime) -> None:
+        """
+        Forward fill the holding time series for a specific action up to the end date.
 
-    Args:
-        session (Session): SQLAlchemy session
-        action (Action): The action to forward fill from
-        end_date (datetime): The end date to fill up to
+        Args:
+            session (Session): SQLAlchemy session
+            action (Action): The action to forward fill from
+            end_date (datetime): The end date to fill up to
 
-    Returns:
-        None
-    """
-    # Get the latest holding entry for this action
-    latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
-        PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
-        PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
-        PortfolioHoldingsTimeSeries.date <= action.date
-    ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
+        Returns:
+            None
+        """
 
-    # If no previous holding exists, use the action's quantity
-    if latest_holding:
-        quantity = latest_holding.quantity 
-    else:
+        # Get the latest holding entry for this action
+        latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
+            PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+            PortfolioHoldingsTimeSeries.date <= action.date
+        ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
+
+        # If no previous holding exists, use the action's quantity
+        if latest_holding:
+            quantity = latest_holding.quantity 
+        else:
+            if action.action_type.name in ('buy', 'dividend'):
+                quantity = action.quantity
+            elif action.action_type.name == 'sell':
+                quantity = -action.quantity
+
+        # Generate date range from the day after the action to the end date
+        start_date = (action.date + timedelta(days=1)).date()
+        while start_date <= end_date:
+            # Check if an entry already exists for this date
+            existing_entry = session.query(PortfolioHoldingsTimeSeries).filter(
+                PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+                PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+                PortfolioHoldingsTimeSeries.date == start_date
+            ).first()
+
+            if existing_entry:
+                # If an entry exists, update its quantity
+                existing_entry.quantity = quantity
+            else:
+                # If no entry exists, create a new one
+                new_entry = PortfolioHoldingsTimeSeries(
+                    portfolio_id=action.portfolio_id,
+                    asset_id=action.asset_id,
+                    date=start_date,
+                    quantity=quantity
+                )
+                session.add(new_entry)
+
+            start_date += timedelta(days=1)
+
+
+    def update_holding_time_series_ffill(self, session: Session, action: Action, end_date: datetime) -> None:
+        """
+        Update the portfolio holdings time series using forward fill (ffill) method.
+
+        This method creates or updates daily holdings entries for a specific asset in a portfolio
+        from the day after the last known holding up to the specified end date.
+        It uses the most recent known quantity and forward-fills it for all subsequent dates.
+
+        Args:
+            session (Session): The database session for executing queries and updates.
+            action (Action): The action object containing portfolio_id, asset_id, and date information.
+            end_date (datetime): The end date up to which the holdings should be updated.
+
+        Returns:
+            None
+        """
+        # Get the latest holding entry for this action
+        latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
+            PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+        ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
+
+        # If no previous holding exists, use the action's quantity
+        if latest_holding:
+            quantity = latest_holding.quantity 
+            start_date = (latest_holding.date + timedelta(days=1)).date()
+            date_range = pd.date_range(start=start_date, end=end_date)
+            # Create a DataFrame with all dates in the range
+            df = pd.DataFrame({
+                'date': date_range,
+                'portfolio_id': action.portfolio_id,
+                'asset_id': action.asset_id,
+                'quantity': quantity
+            })
+            records = df.to_dict('records')
+            stmt = insert(PortfolioHoldingsTimeSeries).values(records)
+            session.execute(stmt)
+
+
+    def update_holding_time_series_vectorized(self, session: Session, action: Action, end_date: datetime) -> None:
+        """
+        Forward fill the holding time series for a specific action up to the end date.
+
+        Args:
+            session (Session): SQLAlchemy session
+            action (Action): The action to forward fill from
+            end_date (datetime): The end date to fill up to
+
+        Returns:
+            None
+        """
+
+        # ---------------
+        # This section performs a ffill to the current date
+        # ---------------
+
         if action.action_type.name in ('buy', 'dividend'):
             quantity = action.quantity
         elif action.action_type.name == 'sell':
             quantity = -action.quantity
 
-    # Generate date range from the day after the action to the end date
-    current_date = action.date + timedelta(days=1)
-    while current_date <= end_date:
-        # Check if an entry already exists for this date
-        existing_entry = session.query(PortfolioHoldingsTimeSeries).filter(
-            PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
-            PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
-            PortfolioHoldingsTimeSeries.date == current_date
-        ).first()
+        # Generate date range
+        start_date = (action.date + timedelta(days=1)).date()
+        date_range = pd.date_range(start=start_date, end=end_date)
 
-        if existing_entry:
-            # If an entry exists, update its quantity
-            existing_entry.quantity = quantity
-        else:
-            # If no entry exists, create a new one
-            new_entry = PortfolioHoldingsTimeSeries(
-                portfolio_id=action.portfolio_id,
-                asset_id=action.asset_id,
-                date=current_date,
-                quantity=quantity
-            )
-            session.add(new_entry)
+        # Create a DataFrame with all dates in the range
+        df = pd.DataFrame({
+            'date': date_range,
+            'portfolio_id': action.portfolio_id,
+            'asset_id': action.asset_id,
+            'quantity': quantity
+        })
 
-        current_date += timedelta(days=1)
+        # Convert to list of dicts for bulk insert/update
+        records = df.to_dict('records')
 
+        # Bulk insert or update
+        stmt = insert(PortfolioHoldingsTimeSeries).values(records)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['id'],
+            set_={'quantity': stmt.excluded.quantity}
+        )
+
+        session.execute(stmt)
 
 if __name__ == "__main__":
 
