@@ -1,7 +1,8 @@
 
 import os
+import logging
 from contextlib import contextmanager
-from sqlalchemy import create_engine, and_, func
+from sqlalchemy import create_engine, and_, func, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, joinedload, Session
@@ -478,7 +479,7 @@ class DatabaseAccess:
             start_date += timedelta(days=1)
 
 
-    def update_holding_time_series_ffill(self, session: Session, action: Action, end_date: datetime) -> None:
+    def insert_holding_time_series_ffill(self, session: Session, action: Action, end_date: datetime) -> None:
         """
         Update the portfolio holdings time series using forward fill (ffill) method.
 
@@ -502,19 +503,25 @@ class DatabaseAccess:
 
         # If no previous holding exists, use the action's quantity
         if latest_holding:
-            quantity = latest_holding.quantity 
-            start_date = (latest_holding.date + timedelta(days=1)).date()
+            start_date = (latest_holding.date).date()
             date_range = pd.date_range(start=start_date, end=end_date)
-            # Create a DataFrame with all dates in the range
-            df = pd.DataFrame({
-                'date': date_range,
-                'portfolio_id': action.portfolio_id,
-                'asset_id': action.asset_id,
-                'quantity': quantity
-            })
-            records = df.to_dict('records')
-            stmt = insert(PortfolioHoldingsTimeSeries).values(records)
-            session.execute(stmt)
+            if start_date < end_date and len(date_range) > 1:
+                quantity = latest_holding.quantity 
+                # Create a DataFrame with all dates in the range
+                df = pd.DataFrame({
+                    'date': date_range,
+                    'portfolio_id': action.portfolio_id,
+                    'asset_id': action.asset_id,
+                    'quantity': quantity
+                })
+                records = df.to_dict('records')
+                stmt = insert(PortfolioHoldingsTimeSeries).values(records)
+                try:
+                    session.execute(stmt)
+                except Exception as e:
+                    logging.error(f"Error ffill holdings time series: {str(e)}")
+                    logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+                    raise e
 
 
     def update_holding_time_series_vectorized(self, session: Session, action: Action, end_date: datetime) -> None:
@@ -535,33 +542,73 @@ class DatabaseAccess:
         # ---------------
 
         if action.action_type.name in ('buy', 'dividend'):
-            quantity = action.quantity
+            quantity_change = action.quantity
         elif action.action_type.name == 'sell':
-            quantity = -action.quantity
+            quantity_change = -action.quantity
 
         # Generate date range
-        start_date = (action.date + timedelta(days=1)).date()
-        date_range = pd.date_range(start=start_date, end=end_date)
+        start_date = action.date.date()
 
-        # Create a DataFrame with all dates in the range
-        df = pd.DataFrame({
-            'date': date_range,
-            'portfolio_id': action.portfolio_id,
-            'asset_id': action.asset_id,
-            'quantity': quantity
-        })
-
-        # Convert to list of dicts for bulk insert/update
-        records = df.to_dict('records')
-
-        # Bulk insert or update
-        stmt = insert(PortfolioHoldingsTimeSeries).values(records)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['id'],
-            set_={'quantity': stmt.excluded.quantity}
+        # Update existing records
+        update_stmt = (
+            update(PortfolioHoldingsTimeSeries)
+            .where(
+                PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+                PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+                PortfolioHoldingsTimeSeries.date >= start_date,
+                PortfolioHoldingsTimeSeries.date <= end_date
+            )
+            .values(quantity=PortfolioHoldingsTimeSeries.quantity + quantity_change)
         )
+        
+        try:
+            session.execute(update_stmt)
+        except Exception as e:
+            logging.error(f"Error updating holdings time series: {str(e)}")
+            logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+            raise e
 
-        session.execute(stmt)
+
+        # date_range = pd.date_range(start=start_date, end=end_date)
+
+        # # Create a DataFrame with all dates in the range
+        # df = pd.DataFrame({
+        #     'date': date_range,
+        #     'portfolio_id': action.portfolio_id,
+        #     'asset_id': action.asset_id
+        #     # 'quantity': quantity
+        # })
+
+        # # Query existing holdings directly into a DataFrame
+        # query = session.query(PortfolioHoldingsTimeSeries).filter(
+        #     PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+        #     PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+        #     PortfolioHoldingsTimeSeries.date >= start_date,
+        #     PortfolioHoldingsTimeSeries.date <= end_date
+        #     )
+        # existing_df = pd.read_sql(query.statement, session.bind, parse_dates=['date'])
+
+        # if not existing_df.empty:
+        #     # If holdings exist, merge with df and update quantities
+        #     df = df.merge(existing_df[['date', 'quantity']], on='date', how='left')
+        #     df['quantity'] = df['quantity'].fillna(0)  # Fill NaNs with 0
+        #     df['quantity'] += quantity_change
+        # else:
+        #     # If no holdings exist, set quantity to the action quantity
+        #     df['quantity'] = quantity_change
+
+        # # Convert to list of dicts for bulk insert/update
+        # records = df.to_dict('records')
+
+        # # This needs to be an update
+        # stmt = insert(PortfolioHoldingsTimeSeries).values(records)
+
+        # try:
+        #     session.execute(stmt)
+        # except Exception as e:
+        #     logging.error(f"Error inserting/updating holdings time series: {str(e)}")
+        #     logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+        #     raise e
 
 if __name__ == "__main__":
 

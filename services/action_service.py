@@ -106,9 +106,9 @@ class ActionService:
         """
         # Implementation for deleting an action
         pass
-
+    
     @with_session
-    def process_actions(self, session: Session):
+    def process_actions(self, session: Session) -> None:
 
         # Get unprocessed actions
         unprocessed_actions = self.db_access.get_unprocessed_actions(session)
@@ -120,7 +120,7 @@ class ActionService:
             self.db_access.update_portfolio_holdings_and_action(session, action)
             
             start_time = time.time()
-            self.db_access.update_holding_time_series_ffill(session, action, datetime.now().date())
+            self.db_access.insert_holding_time_series_ffill(session, action, datetime.now().date())
             end_time = time.time()
             runtime = end_time - start_time
             print(f"Runtime for update_holding_time_series_ffill: {runtime:.3f} seconds")
@@ -134,6 +134,33 @@ class ActionService:
             print(f"Runtime for update_holding_time_series: {runtime:.3f} seconds")
 
         return
+    
+    # @with_session
+    # def get_unprocessed_actions(self, session: Session) -> List[Action]:
+    #     unprocessed_actions = self.db_access.get_unprocessed_actions(session)
+
+    #     return
+
+    # @with_session
+    # def _process_action(self, session: Session, action: Action) -> None:
+
+    #     # Update portfolio holdings and action as processed
+    #     self.db_access.update_portfolio_holdings_and_action(session, action)
+        
+    #     start_time = time.time()
+    #     self.db_access.update_holding_time_series_ffill(session, action, datetime.now().date())
+    #     end_time = time.time()
+    #     runtime = end_time - start_time
+    #     print(f"Runtime for update_holding_time_series_ffill: {runtime:.3f} seconds")
+
+    #     # Update time series in-kind holding
+    #     start_time = time.time()
+    #     self.db_access.update_holding_time_series_vectorized(session, action, datetime.now().date())
+    #     end_time = time.time()
+
+    #     runtime = end_time - start_time
+    #     print(f"Runtime for update_holding_time_series: {runtime:.3f} seconds")
+
 
 
 # Usage example:
