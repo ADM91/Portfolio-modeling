@@ -121,7 +121,7 @@ class ActionService:
             self.db_access.update_portfolio_holdings_and_action(session, action)
             
             start_time = time.time()
-            # self.db_access.insert_holding_time_series_ffill(session, action, datetime.now().date())
+            self.db_access.insert_holding_time_series_ffill(session, action, datetime.now().date())
             end_time = time.time()
             runtime = end_time - start_time
             print(f"Runtime for update_holding_time_series_ffill: {runtime:.3f} seconds")
