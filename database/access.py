@@ -2,7 +2,7 @@
 import os
 import logging
 from contextlib import contextmanager
-from sqlalchemy import create_engine, and_, func, update
+from sqlalchemy import create_engine, and_, func, update, select
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, joinedload, Session
@@ -523,92 +523,79 @@ class DatabaseAccess:
                     logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
                     raise e
 
-
     def update_holding_time_series_vectorized(self, session: Session, action: Action, end_date: datetime) -> None:
         """
-        Forward fill the holding time series for a specific action up to the end date.
+        Update the portfolio holdings time series for a specific action up to the end date using a vectorized approach.
 
+        This method updates or inserts holdings entries for a specific asset in a portfolio
+        from the action date up to the specified end date. It calculates the quantity change
+        based on the action type and applies this change to all relevant dates.
         Args:
-            session (Session): SQLAlchemy session
-            action (Action): The action to forward fill from
-            end_date (datetime): The end date to fill up to
+            session (Session): The SQLAlchemy session for database operations.
+            action (Action): The action object containing portfolio_id, asset_id, date, and quantity information.
+            end_date (datetime): The end date up to which the holdings should be updated.
 
         Returns:
             None
-        """
 
-        # ---------------
-        # This section performs a ffill to the current date
-        # ---------------
+        Raises:
+            Exception: If there's an error during the update or insert process.
+
+        Note:
+            This method uses a vectorized approach for better performance when dealing with large datasets.
+            It first attempts to update existing records and then inserts new records if necessary.
+        """
 
         if action.action_type.name in ('buy', 'dividend'):
             quantity_change = action.quantity
         elif action.action_type.name == 'sell':
             quantity_change = -action.quantity
 
-        # Generate date range
         start_date = action.date.date()
+        # end_date = end_date.date()
 
-        # Update existing records
-        update_stmt = (
-            update(PortfolioHoldingsTimeSeries)
-            .where(
-                PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
-                PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
-                PortfolioHoldingsTimeSeries.date >= start_date,
-                PortfolioHoldingsTimeSeries.date <= end_date
-            )
-            .values(quantity=PortfolioHoldingsTimeSeries.quantity + quantity_change)
-        )
-        
         try:
-            session.execute(update_stmt)
+            # First, update existing records
+            update_stmt = (
+                update(PortfolioHoldingsTimeSeries)
+                .where(
+                    and_(
+                        PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
+                        PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
+                        PortfolioHoldingsTimeSeries.date >= start_date,
+                        PortfolioHoldingsTimeSeries.date <= end_date + timedelta(days=1) 
+                    )
+                )
+                .values(quantity=PortfolioHoldingsTimeSeries.quantity + quantity_change)
+            )
+            result = session.execute(update_stmt)
+            
+            # If no rows were updated, we need to insert new records
+            if result.rowcount == 0:
+                # Generate date series in Python
+                date_series = [start_date + timedelta(days=x) for x in range((end_date - start_date).days + 1)]
+
+                # Prepare data for insertion
+                insert_data = [
+                    {
+                        'portfolio_id': action.portfolio_id,
+                        'asset_id': action.asset_id,
+                        'date': date,
+                        'quantity': quantity_change
+                    }
+                    for date in date_series
+                ]
+
+                # Insert new records
+                insert_stmt = insert(PortfolioHoldingsTimeSeries)
+                session.execute(insert_stmt, insert_data)
+
         except Exception as e:
-            logging.error(f"Error updating holdings time series: {str(e)}")
+            session.rollback()
+            logging.error(f"Error updating/inserting holdings time series: {str(e)}")
             logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
             raise e
 
-
-        # date_range = pd.date_range(start=start_date, end=end_date)
-
-        # # Create a DataFrame with all dates in the range
-        # df = pd.DataFrame({
-        #     'date': date_range,
-        #     'portfolio_id': action.portfolio_id,
-        #     'asset_id': action.asset_id
-        #     # 'quantity': quantity
-        # })
-
-        # # Query existing holdings directly into a DataFrame
-        # query = session.query(PortfolioHoldingsTimeSeries).filter(
-        #     PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
-        #     PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
-        #     PortfolioHoldingsTimeSeries.date >= start_date,
-        #     PortfolioHoldingsTimeSeries.date <= end_date
-        #     )
-        # existing_df = pd.read_sql(query.statement, session.bind, parse_dates=['date'])
-
-        # if not existing_df.empty:
-        #     # If holdings exist, merge with df and update quantities
-        #     df = df.merge(existing_df[['date', 'quantity']], on='date', how='left')
-        #     df['quantity'] = df['quantity'].fillna(0)  # Fill NaNs with 0
-        #     df['quantity'] += quantity_change
-        # else:
-        #     # If no holdings exist, set quantity to the action quantity
-        #     df['quantity'] = quantity_change
-
-        # # Convert to list of dicts for bulk insert/update
-        # records = df.to_dict('records')
-
-        # # This needs to be an update
-        # stmt = insert(PortfolioHoldingsTimeSeries).values(records)
-
-        # try:
-        #     session.execute(stmt)
-        # except Exception as e:
-        #     logging.error(f"Error inserting/updating holdings time series: {str(e)}")
-        #     logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
-        #     raise e
 
 if __name__ == "__main__":
 

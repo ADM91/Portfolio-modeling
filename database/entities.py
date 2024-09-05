@@ -80,6 +80,7 @@ class PortfolioHoldingsTimeSeries(Base):
     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings_time_series")
     asset: Mapped["Asset"] = relationship("Asset", back_populates="holdings_time_series")
 
+# TODO:  remove this table, replaced by PortfolioHoldingsTimeSeries
 class PortfolioHolding(Base):
     __tablename__ = 'portfolio_holdings'
     id: Mapped[int] = mapped_column(primary_key=True)
