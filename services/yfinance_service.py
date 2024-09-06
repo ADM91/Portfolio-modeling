@@ -114,8 +114,10 @@ class YFinanceService:
 
 # Usage example
 if __name__ == "__main__":
-    
-    yf_service = YFinanceService()
+
+    from database.access import DatabaseAccess
+
+    yf_service = YFinanceService(DatabaseAccess())
     yf_service.update_db_with_asset_data()
 
     print('done')
