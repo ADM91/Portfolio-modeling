@@ -250,6 +250,25 @@ class DatabaseAccess:
         """
         return session.query(Action).filter(Action.is_processed == False).order_by(Action.date).all()
 
+    def update_action(self, session: Session, action: Action) -> None:
+        """
+        Update an action to mark it as processed.
+        
+        This method updates the 'is_processed' field of the given action to True.
+
+        Args:
+            session (Session): The SQLAlchemy session for database operations.
+            action (Action): The action object to be updated.
+
+        Returns:
+            None
+
+        Note:
+            This method only updates the 'is_processed' field and does not commit the session.
+            The caller is responsible for committing or rolling back the session as needed.
+        """
+        session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
+
     def update_portfolio_holdings_and_action(self, session: Session, action: Action) -> None:
         """
         Update portfolio holdings based on an action and mark the action as processed.
@@ -385,24 +404,92 @@ class DatabaseAccess:
         for holding in holdings_data:
             session.merge(PortfolioHoldingsTimeSeries(**holding))
 
-    # def store_holdings_time_series(self, session: Session, holdings: List[PortfolioHoldingsTimeSeries]) -> None:
-    #     """
-    #     Merge new holdings into the time series, updating existing entries or adding new ones.
+    def get_asset_price_history(self, session: Session, asset_id: int, start_date: datetime, end_date: datetime) -> List[PriceHistory]:
+        """
+        Get asset prices for a specific asset between the specified date range.
 
-    #     Args:
-    #         session (Session): SQLAlchemy session
-    #         holdings (List[PortfolioHoldingsTimeSeries]): List of holdings to merge
-    #     """
-    #     for holding in holdings:
-    #         existing = session.query(PortfolioHoldingsTimeSeries).filter(
-    #             PortfolioHoldingsTimeSeries.portfolio_id == holding.portfolio_id,
-    #             PortfolioHoldingsTimeSeries.asset_id == holding.asset_id,
-    #             PortfolioHoldingsTimeSeries.date == holding.date
-    #         ).first()
-    #         if existing:
-    #             existing.quantity = holding.quantity
-    #         else:
-    #             session.add(holding)
+        Args:
+            session (Session): SQLAlchemy session
+            asset_id (int): ID of the asset
+            start_date (datetime): Start date of the range
+            end_date (datetime): End date of the range
+
+        Returns:
+            List[PriceHistory]: A list of PriceHistory objects for the specified asset and date range,
+                                ordered by date
+        """
+        return session.query(PriceHistory).filter(
+            PriceHistory.asset_id == asset_id,
+            PriceHistory.date.between(start_date, end_date)
+        ).order_by(PriceHistory.date).all()
+
+    def get_asset_price_history_df(self, session: Session, asset_id: int, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+        """
+        Get asset prices for a specific asset between the specified date range as a pandas DataFrame.
+
+        Args:
+            session (Session): SQLAlchemy session
+            asset_id (int): ID of the asset
+            start_date (datetime): Start date of the range
+            end_date (datetime): End date of the range
+
+        Returns:
+            pd.DataFrame: A DataFrame containing PriceHistory data for the specified asset and date range,
+                                ordered by date
+        """
+
+        # Construct the SQL query
+        query = select(PriceHistory.asset_id, PriceHistory.date, PriceHistory.close).filter(
+            PriceHistory.asset_id == asset_id,
+            PriceHistory.date.between(start_date, end_date)
+        ).order_by(PriceHistory.date)
+
+        # Execute the query and fetch results directly into a DataFrame
+        df = pd.read_sql(query, session.bind)
+
+        return df
+
+
+    def get_portfolio_asset_time_series(self, session: Session, portfolio_id: int, asset_id: int) -> List[PortfolioHoldingsTimeSeries]:
+        """
+        Get the complete time series of holdings for a specific asset in a specific portfolio.
+
+        Args:
+            session (Session): SQLAlchemy session
+            portfolio_id (int): ID of the portfolio
+            asset_id (int): ID of the asset
+
+        Returns:
+            List[PortfolioHoldingsTimeSeries]: List of all holdings time series entries for the specified asset and portfolio
+        """
+        return session.query(PortfolioHoldingsTimeSeries).filter(
+            PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id == asset_id
+        ).order_by(PortfolioHoldingsTimeSeries.date).all()
+
+
+    def get_portfolio_asset_time_series_df(self, session: Session, portfolio_id: int, asset_id: int) -> pd.DataFrame:
+        """
+        Get the complete time series of holdings for a specific asset in a specific portfolio as a pandas DataFrame.
+
+        Args:
+            session (Session): SQLAlchemy session
+            portfolio_id (int): ID of the portfolio
+            asset_id (int): ID of the asset
+
+        Returns:
+            pd.DataFrame: DataFrame containing all holdings time series entries for the specified asset and portfolio
+        """
+        # Construct the SQL query
+        query = select(PortfolioHoldingsTimeSeries).filter(
+            PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id == asset_id
+        ).order_by(PortfolioHoldingsTimeSeries.date)
+
+        # Execute the query and fetch results directly into a DataFrame
+        df = pd.read_sql(query, session.bind)
+
+        return df
 
     def get_portfolio_holdings_time_series(self, session: Session, portfolio_id: int, asset_id: int, start_date: datetime, end_date: datetime) -> List[PortfolioHoldingsTimeSeries]:
         """

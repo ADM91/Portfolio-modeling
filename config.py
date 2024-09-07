@@ -1,6 +1,5 @@
 
-# # Activity file path
-# PATH_ACTIVITY = "portfolio_activity.xlsx"
+
 
 # # Configuration for assets and metrics
 # ACCOUNTS = ['Alexander', 'AM ehf.']
@@ -11,6 +10,7 @@
 # # Map tickers to assets
 # TICKER_ASSET_MAP = {"BTC-USD":"BTC", "ETH-USD":"ETH", "MATIC-USD":"MATIC", "ADA-USD":"ADA", "DOT-USD":"DOT", "LINK-USD":"LINK", "SOL-USD":"SOL", "ISK=X":"ISK", "EUR=X":"EUR"}
 
+# Activity file path
 
 # Data to insert
 action_types = [

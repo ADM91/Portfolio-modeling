@@ -1,6 +1,7 @@
 
-# from database.access import DatabaseAccess
-from database.access import *
+import os
+
+from database.access import DatabaseAccess
 from database.init_db import initialize_database
 from services.yfinance_service import YFinanceService
 from services.action_service import ActionService
@@ -19,7 +20,7 @@ def startup():
 
     # ActionService get action data
     action_service = ActionService(db_access)
-    actions = action_service.read_actions_from_excel("_junk/test_action_data.xlsx")
+    actions = action_service.read_actions_from_excel(os.environ.get("PATH_ACTIONS"))
     action_service.insert_actions(actions)  # TODO: this reinserts existing actions
     action_service.process_actions()
 

@@ -67,7 +67,7 @@ class Asset(Base):
     price_history: Mapped[list["PriceHistory"]] = relationship("PriceHistory", back_populates="asset", foreign_keys=[PriceHistory.asset_id])
     actions: Mapped[list["Action"]] = relationship("Action", back_populates="asset", foreign_keys=[Action.asset_id])
     currency_actions: Mapped[list["Action"]] = relationship("Action", back_populates="currency", foreign_keys=[Action.currency_id])
-    portfolio_holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
+    # portfolio_holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
     holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="asset")
 
 class PortfolioHoldingsTimeSeries(Base):
@@ -81,18 +81,18 @@ class PortfolioHoldingsTimeSeries(Base):
     asset: Mapped["Asset"] = relationship("Asset", back_populates="holdings_time_series")
 
 # TODO:  remove this table, replaced by PortfolioHoldingsTimeSeries
-class PortfolioHolding(Base):
-    __tablename__ = 'portfolio_holdings'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    action_id: Mapped[int] = mapped_column(ForeignKey('actions.id'))
-    portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
-    asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
-    quantity_change: Mapped[float] = mapped_column(Float)
-    quantity_new: Mapped[float] = mapped_column(Float)
-    date: Mapped[datetime] = mapped_column(DateTime)
-    action: Mapped["Action"] = relationship("Action")
-    portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings")
-    asset: Mapped["Asset"] = relationship("Asset", back_populates="portfolio_holdings")
+# class PortfolioHolding(Base):
+#     __tablename__ = 'portfolio_holdings'
+#     id: Mapped[int] = mapped_column(primary_key=True)
+#     action_id: Mapped[int] = mapped_column(ForeignKey('actions.id'))
+#     portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
+#     asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
+#     quantity_change: Mapped[float] = mapped_column(Float)
+#     quantity_new: Mapped[float] = mapped_column(Float)
+#     date: Mapped[datetime] = mapped_column(DateTime)
+#     action: Mapped["Action"] = relationship("Action")
+#     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings")
+#     asset: Mapped["Asset"] = relationship("Asset", back_populates="portfolio_holdings")
 
 class Portfolio(Base):
     __tablename__ = 'portfolios'
@@ -100,7 +100,7 @@ class Portfolio(Base):
     name: Mapped[str] = mapped_column(String)
     owner: Mapped[str] = mapped_column(String)
     actions: Mapped[list["Action"]] = relationship("Action", back_populates="portfolio", foreign_keys=[Action.portfolio_id])
-    holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="portfolio")
+    # holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="portfolio")
     holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="portfolio")
 
 

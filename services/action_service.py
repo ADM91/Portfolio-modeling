@@ -118,7 +118,8 @@ class ActionService:
 
             # Update portfolio holdings and action as processed
             # TODO: split this into two functions
-            self.db_access.update_portfolio_holdings_and_action(session, action)
+            # self.db_access.update_portfolio_holdings_and_action(session, action)
+            self.db_access.update_action(session, action)
             
             start_time = time.time()
             self.db_access.insert_holding_time_series_ffill(session, action, datetime.now().date())
