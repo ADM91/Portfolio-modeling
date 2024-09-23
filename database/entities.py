@@ -19,7 +19,6 @@ class ActionType(Base):
     __tablename__ = 'action_types'
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50))
-    # actions: Mapped[list["Action"]] = relationship("Action", back_populates="action_type")
 
 class Action(Base):
     # investment action, buy, sell, dividend (currency agnostic)
@@ -40,7 +39,6 @@ class Action(Base):
     asset: Mapped["Asset"] = relationship("Asset", foreign_keys=[asset_id])
     currency: Mapped["Asset"] = relationship("Asset", foreign_keys=[currency_id])
     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="actions")
-    # action_type: Mapped["ActionType"] = relationship("ActionType", back_populates="actions")
 
 class PriceHistory(Base):
     # usd rate, time series
@@ -67,7 +65,6 @@ class Asset(Base):
     price_history: Mapped[list["PriceHistory"]] = relationship("PriceHistory", back_populates="asset", foreign_keys=[PriceHistory.asset_id])
     actions: Mapped[list["Action"]] = relationship("Action", back_populates="asset", foreign_keys=[Action.asset_id])
     currency_actions: Mapped[list["Action"]] = relationship("Action", back_populates="currency", foreign_keys=[Action.currency_id])
-    # portfolio_holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="asset")
     holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="asset")
 
 class PortfolioHoldingsTimeSeries(Base):
@@ -79,6 +76,18 @@ class PortfolioHoldingsTimeSeries(Base):
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings_time_series")
     asset: Mapped["Asset"] = relationship("Asset", back_populates="holdings_time_series")
+
+class Portfolio(Base):
+    __tablename__ = 'portfolios'
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    owner: Mapped[str] = mapped_column(String)
+    actions: Mapped[list["Action"]] = relationship("Action", back_populates="portfolio", foreign_keys=[Action.portfolio_id])
+    holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="portfolio")
+
+
+# TODO: consider adding a receipts table to keep track of all purchase receipts for tax reasons
+
 
 # TODO:  remove this table, replaced by PortfolioHoldingsTimeSeries
 # class PortfolioHolding(Base):
@@ -93,17 +102,6 @@ class PortfolioHoldingsTimeSeries(Base):
 #     action: Mapped["Action"] = relationship("Action")
 #     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="holdings")
 #     asset: Mapped["Asset"] = relationship("Asset", back_populates="portfolio_holdings")
-
-class Portfolio(Base):
-    __tablename__ = 'portfolios'
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String)
-    owner: Mapped[str] = mapped_column(String)
-    actions: Mapped[list["Action"]] = relationship("Action", back_populates="portfolio", foreign_keys=[Action.portfolio_id])
-    # holdings: Mapped[list["PortfolioHolding"]] = relationship("PortfolioHolding", back_populates="portfolio")
-    holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="portfolio")
-
-
 
 # class MetricType(Base):
 #     # base currency agnostic

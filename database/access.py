@@ -182,6 +182,32 @@ class DatabaseAccess:
         """
         return session.query(Asset).filter(Asset.is_currency == True).all()
 
+    def get_currency_conversion_time_series(self, session: Session, from_currency_id: int, to_currency_id: int, start_date: datetime, end_date: datetime):
+
+        # Fetch price history for both currencies
+        from_currency_prices = session.query(PriceHistory.date, PriceHistory.close.label('from_currency_price'))\
+            .join(Asset, PriceHistory.asset_id == Asset.id)\
+            .filter(and_(PriceHistory.asset_id == from_currency_id,
+                        PriceHistory.date >= start_date,
+                        PriceHistory.date <= end_date))\
+            .subquery()
+
+        to_currency_prices = session.query(PriceHistory.date, PriceHistory.close.label('to_currency_price'))\
+            .join(Asset, PriceHistory.asset_id == Asset.id)\
+            .filter(and_(PriceHistory.asset_id == to_currency_id,
+                        PriceHistory.date >= start_date,
+                        PriceHistory.date <= end_date))\
+            .subquery()
+
+        # Join the price histories
+        conversion_rates = session.query(
+            from_currency_prices.c.date,
+            from_currency_prices.c.from_currency_price,
+            to_currency_prices.c.to_currency_price,
+        ).join(to_currency_prices, from_currency_prices.c.date == to_currency_prices.c.date)
+
+        return conversion_rates
+
     def get_last_price_date(self, session: Session, ticker: str) -> Optional[datetime]:
         """
         Get the date of the last price for a given asset.
@@ -211,6 +237,21 @@ class DatabaseAccess:
             Optional[ActionType]: The action type, or None if not found
         """
         return session.query(ActionType).filter(ActionType.name == name).first()
+
+    def get_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int) -> Session.query:
+
+        actions = session.query(
+            Action.date,
+            Action.price,
+            Action.quantity,
+            Action.fee,
+            Action.currency_id,
+        ).join(Asset, Action.currency_id == Asset.id)\
+         .filter(Action.portfolio_id == portfolio_id,
+                 Action.asset_id == asset_id,
+                 Action.action_type_id.in_([1, 2]))  # 1 for buy, 2 for sell
+        
+        return actions
 
     def get_asset_by_code(self, session: Session, code: str) -> Optional[Asset]:
         """

@@ -31,8 +31,10 @@
  - ~~change DatabaseAccess methods to return session queries, not detached data objects.  Like done "in get_portfolio_asset_actions()". Session lifecycle moves to business logic layer.~~
  - ~~working on update_holding_time_series() in DatabaseAccess~~
  - ~~time series for holdings in kind - separate table or dataframe in ram. - separate table~~
- - transform in-kind holdings to currency denominated holdings test performing in ram with pandas vs sql querying
- - metrics service updates metrics - tricky to implement - need to determine how to provide time frame for requests
+ - ~~transform in-kind holdings to currency denominated holdings test performing in ram with pandas vs sql querying~~
+ - adding core metric calcualtion functions - value invested and cost basis
+ - simple plotting for proof of concept
+ - want to be able to view metrics for combinations of portfolios and assets
  - backend services as fastapi 
  - frontend
  - action defined on precise datetime
