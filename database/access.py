@@ -240,16 +240,9 @@ class DatabaseAccess:
 
     def get_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int) -> Session.query:
 
-        actions = session.query(
-            Action.date,
-            Action.price,
-            Action.quantity,
-            Action.fee,
-            Action.currency_id,
-        ).join(Asset, Action.currency_id == Asset.id)\
-         .filter(Action.portfolio_id == portfolio_id,
-                 Action.asset_id == asset_id,
-                 Action.action_type_id.in_([1, 2]))  # 1 for buy, 2 for sell
+        actions = session.query(Action).filter(Action.portfolio_id == portfolio_id,
+                                               Action.asset_id == asset_id,
+                                               Action.action_type_id.in_([1, 2]))  # 1 for buy, 2 for sell
         
         return actions
 
@@ -310,43 +303,43 @@ class DatabaseAccess:
         """
         session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
 
-    def update_portfolio_holdings_and_action(self, session: Session, action: Action) -> None:
-        """
-        Update portfolio holdings based on an action and mark the action as processed.
+    # def update_portfolio_holdings_and_action(self, session: Session, action: Action) -> None:
+    #     """
+    #     Update portfolio holdings based on an action and mark the action as processed.
 
-        Args:
-            session (Session): SQLAlchemy session
-            action (Action): The action to process
-        """
-        quantity_old = session.query(PortfolioHolding.quantity_new)\
-            .join(Action)\
-            .filter(
-                (Action.portfolio_id == action.portfolio_id) &
-                (Action.asset_id == action.asset_id)
-            )\
-            .order_by(PortfolioHolding.date.desc())\
-            .first()
+    #     Args:
+    #         session (Session): SQLAlchemy session
+    #         action (Action): The action to process
+    #     """
+    #     quantity_old = session.query(PortfolioHolding.quantity_new)\
+    #         .join(Action)\
+    #         .filter(
+    #             (Action.portfolio_id == action.portfolio_id) &
+    #             (Action.asset_id == action.asset_id)
+    #         )\
+    #         .order_by(PortfolioHolding.date.desc())\
+    #         .first()
 
-        quantity_old = quantity_old[0] if quantity_old else 0
+    #     quantity_old = quantity_old[0] if quantity_old else 0
 
-        if action.action_type_id in (ActionTypeEnum.buy.value, ActionTypeEnum.dividend.value):
-            quantity_change = action.quantity
-        elif action.action_type_id == ActionTypeEnum.sell.value:
-            quantity_change = -action.quantity
-        else:
-            quantity_change = 0
+    #     if action.action_type_id in (ActionTypeEnum.buy.value, ActionTypeEnum.dividend.value):
+    #         quantity_change = action.quantity
+    #     elif action.action_type_id == ActionTypeEnum.sell.value:
+    #         quantity_change = -action.quantity
+    #     else:
+    #         quantity_change = 0
 
-        session.add(PortfolioHolding(
-            action_id=action.asset_id,
-            portfolio_id=action.portfolio_id,
-            asset_id=action.asset_id,
-            quantity_change=quantity_change,
-            quantity_new=quantity_old+quantity_change,
-            date=action.date,
-            action=action
-        ))
+    #     session.add(PortfolioHolding(
+    #         action_id=action.asset_id,
+    #         portfolio_id=action.portfolio_id,
+    #         asset_id=action.asset_id,
+    #         quantity_change=quantity_change,
+    #         quantity_new=quantity_old+quantity_change,
+    #         date=action.date,
+    #         action=action
+    #     ))
 
-        session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
+    #     session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
 
     def get_last_holdings_time_series_update(self, session: Session) -> Optional[datetime]:
         """

@@ -32,7 +32,7 @@
  - ~~working on update_holding_time_series() in DatabaseAccess~~
  - ~~time series for holdings in kind - separate table or dataframe in ram. - separate table~~
  - ~~transform in-kind holdings to currency denominated holdings test performing in ram with pandas vs sql querying~~
- - adding core metric calcualtion functions - value invested and cost basis
+ - adding core metric calcualtion functions - value invested and cost basis (get_value_invested wip)
  - simple plotting for proof of concept
  - want to be able to view metrics for combinations of portfolios and assets
  - backend services as fastapi 
