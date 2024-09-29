@@ -182,6 +182,32 @@ class DatabaseAccess:
         """
         return session.query(Asset).filter(Asset.is_currency == True).all()
 
+    def get_currency_conversion_on_date(self, session: Session, from_currency_id: int, to_currency_id: int, date: datetime):
+
+        # Price on last available date
+        from_currency_price = session.query(PriceHistory.date, PriceHistory.close.label('from_currency_price'))\
+            .filter(PriceHistory.asset_id == from_currency_id)\
+            .filter(PriceHistory.date <= date)\
+            .order_by(PriceHistory.date.desc())\
+            .limit(1)\
+            .subquery()
+        
+        to_currency_price = session.query(PriceHistory.date, PriceHistory.close.label('to_currency_price'))\
+            .filter(PriceHistory.asset_id == to_currency_id)\
+            .filter(PriceHistory.date <= date)\
+            .order_by(PriceHistory.date.desc())\
+            .limit(1)\
+            .subquery()
+
+        # Perform the division
+        exchange_rate = session.query(
+            (from_currency_price.c.from_currency_price / to_currency_price.c.to_currency_price).label('exchange_rate')
+        ).first()
+
+        # The result is now available as exchange_rate.exchange_rate
+        return exchange_rate.exchange_rate
+
+
     def get_currency_conversion_time_series(self, session: Session, from_currency_id: int, to_currency_id: int, start_date: datetime, end_date: datetime):
 
         # Fetch price history for both currencies
@@ -240,9 +266,15 @@ class DatabaseAccess:
 
     def get_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int) -> Session.query:
 
-        actions = session.query(Action).filter(Action.portfolio_id == portfolio_id,
-                                               Action.asset_id == asset_id,
-                                               Action.action_type_id.in_([1, 2]))  # 1 for buy, 2 for sell
+        actions = (
+            session.query(Action, ActionType.name.label('action_type_name'))
+            .join(ActionType, Action.action_type_id == ActionType.id)
+            .filter(
+                Action.portfolio_id == portfolio_id,
+                Action.asset_id == asset_id,
+                Action.action_type_id.in_([1, 2])  # 1 for buy, 2 for sell
+            )
+        )
         
         return actions
 

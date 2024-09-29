@@ -1,8 +1,8 @@
 
 import logging
 import pandas as pd
+from datetime import datetime
 
-from database.entities import Action, Asset, PriceHistory
 from database.access import DatabaseAccess, with_session, Session
 
 
@@ -76,16 +76,19 @@ class MetricService:
         df = df.sort_values(by='date').reset_index(drop=True)
 
         # calcuate value of buy/sell in currency
-        df['value'] = df['price'] * df['quantity']
+        df['value'] = 0.0
 
-        # Convert to specified currency if necessary
-        if currency_id != df['currency_id'].iloc[0]:
-            conversion_rates = self.get_currency_conversion_rates(session, df['currency_id'].iloc[0], currency_id, df['date'].min(), df['date'].max())
-            df = pd.merge(df, conversion_rates, on='date', how='left')
-            df['value'] = df['value'] * df['conversion_rate']
+        # Convert value invested to specified currency
+        for i, row in df.iterrows():
+            sign = 1 if row['action_type_name'] == 'buy' else -1
+            if currency_id != row['currency_id']:
+                conversion_rate = self.db_access.get_currency_conversion_on_date(session, row['currency_id'], currency_id, row['date'])
+                df.at[i, 'value'] = sign * conversion_rate * row['price'] * row['quantity']
+            else:
+                df.at[i, 'value'] = sign * row['price'] * row['quantity']
         
         # Create a daily date range
-        date_range = pd.date_range(start=df['date'].min(), end=df['date'].max(), freq='D')
+        date_range = pd.date_range(start=df['date'].min(), end=datetime.now(), freq='D')
         
         # Create a daily DataFrame
         daily_df = pd.DataFrame(index=date_range)
@@ -142,17 +145,58 @@ class MetricService:
 
 if __name__ == "__main__":
 
-        metric_service = MetricService(DatabaseAccess())
-        result = metric_service.get_holdings_in_base_currency(1, 4, 2)  # Example portfolio, asset, and base currency IDs
+    asset = 4
+    currency = 2
 
-        result2 = metric_service.get_currency_conversion_rates(from_currency_id=2, to_currency_id=3, start_date='2023-01-01', end_date='2023-12-31')  # Example from and to currency IDs, and date range
-        
-        result3 = metric_service.get_value_invested(portfolio_id=1, asset_id=4, currency_id=2)  # Example portfolio, asset, and base currency IDs
 
-        print('done')
+    metric_service = MetricService(DatabaseAccess())
+    result = metric_service.get_holdings_in_base_currency(portfolio_id=1, asset_id=asset, currency_id=currency)  # Example portfolio, asset, and base currency IDs        
+    result3 = metric_service.get_value_invested(portfolio_id=1, asset_id=asset, currency_id=currency)  # Example portfolio, asset, and base currency IDs
 
-        from matplotlib import pyplot as plt
+    print('done')
 
-        plt.plot(result['date'], result['value_in_currency'])
-        plt.savefig('my_plot.png')
-        print('done')
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    # Convert to DataFrames
+    df1 = pd.DataFrame(result)
+    df3 = pd.DataFrame(result3)
+
+    # Merge the dataframes on date
+    merged_df = pd.merge(df1, df3, on='date', how='outer').sort_values('date')
+    
+    # Forward fill any missing values
+    merged_df = merged_df.ffill()
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Convert values to millions of ISK
+    holdings = merged_df['value_in_currency']
+    invested = merged_df['cumulative_value']
+    dates = merged_df['date']
+
+    # Plot holdings in base currency
+    ax.plot(dates, holdings, color='blue', label='Holdings in Base Currency')
+
+    # Create shaded area for value invested
+    ax.fill_between(dates, 0, invested, 
+                    where=(invested >= 0), color='red', alpha=0.3, 
+                    label='Positive Value Invested')
+    ax.fill_between(dates, 0, invested, 
+                    where=(invested < 0), color='green', alpha=0.3, 
+                    label='Negative Value Invested')
+
+    # Set labels and title
+    ax.set_xlabel('Date')
+    ax.set_ylabel('currency')
+    ax.set_title('Holdings in Base Currency and Value Invested Over Time')
+
+    # Add legend
+    ax.legend(loc='upper left')
+
+    # Adjust layout and save
+    plt.tight_layout()
+    plt.savefig('holdings_and_invested_value.png')
+    print('Plot saved as holdings_and_invested_value.png')
+

@@ -75,29 +75,38 @@ class YFinanceService:
     @with_session
     def update_db_with_asset_data(self, session: Session):
         asset_list = self.db_access.get_all_assets(session)
-
-        # omit USD - we assume always USD = 1
-        asset_list = [asset for asset in asset_list if asset.code != 'USD']
         
         for asset in asset_list:
             # Get the most recent date in the database for this asset
             last_date = self.db_access.get_last_price_date(session, asset.ticker)
             
             # If we have no data, start from 5 years ago, otherwise start from the day after the last date
-            start_date = last_date if last_date else datetime.now() - timedelta(days=5*365)
+            start_date = last_date + timedelta(days=1) if last_date else datetime.now() - timedelta(days=5*365)
             end_date = datetime.now()
 
-            # Only fetch data if there's a gap to fill
-            if start_date < end_date:
+            # Only update if there's a gap to fill
+            if start_date <= end_date:
                 logging.info(f"Updating {asset.ticker} from {start_date} to {end_date}")
                 
                 try:
-                    # Fetch asset data - close on current day represents current price
-                    asset_name, price_data = self.fetch_asset_data(asset.ticker, start_date, end_date)
-                    
-                    # uninvert if inverted
-                    if asset.is_inverted:
-                        price_data[['Open', 'High', 'Low', 'Close']] = price_data[['Open', 'High', 'Low', 'Close']].apply(lambda x: round(1/x, 6))
+                    if asset.code == 'USD':
+                        # For USD, create a DataFrame with all values set to 1
+                        date_range = pd.date_range(start=start_date, end=end_date)
+                        price_data = pd.DataFrame({
+                            'Date': date_range,
+                            'Open': 1,
+                            'High': 1,
+                            'Low': 1,
+                            'Close': 1,
+                            'Volume': 0
+                        })
+                    else:
+                        # Fetch asset data for non-USD assets
+                        asset_name, price_data = self.fetch_asset_data(asset.ticker, start_date, end_date)
+                        
+                        # uninvert if inverted
+                        if asset.is_inverted:
+                            price_data[['Open', 'High', 'Low', 'Close']] = price_data[['Open', 'High', 'Low', 'Close']].apply(lambda x: round(1/x, 6))
 
                     if not price_data.empty:
                         # Prepare and insert price history data
@@ -110,6 +119,46 @@ class YFinanceService:
                     logging.error(f"Error updating {asset.ticker}: {str(e)}")
             else:
                 logging.info(f"{asset.ticker} is up to date")
+
+
+    # @with_session
+    # def update_db_with_asset_data(self, session: Session):
+    #     asset_list = self.db_access.get_all_assets(session)
+
+    #     # omit USD - we assume always USD = 1
+    #     # asset_list = [asset for asset in asset_list if asset.code != 'USD']
+        
+    #     for asset in asset_list:
+    #         # Get the most recent date in the database for this asset
+    #         last_date = self.db_access.get_last_price_date(session, asset.ticker)
+            
+    #         # If we have no data, start from 5 years ago, otherwise start from the day after the last date
+    #         start_date = last_date if last_date else datetime.now() - timedelta(days=5*365)
+    #         end_date = datetime.now()
+
+    #         # Only fetch data if there's a gap to fill
+    #         if start_date < end_date:
+    #             logging.info(f"Updating {asset.ticker} from {start_date} to {end_date}")
+                
+    #             try:
+    #                 # Fetch asset data - close on current day represents current price
+    #                 asset_name, price_data = self.fetch_asset_data(asset.ticker, start_date, end_date)
+                    
+    #                 # uninvert if inverted
+    #                 if asset.is_inverted:
+    #                     price_data[['Open', 'High', 'Low', 'Close']] = price_data[['Open', 'High', 'Low', 'Close']].apply(lambda x: round(1/x, 6))
+
+    #                 if not price_data.empty:
+    #                     # Prepare and insert price history data
+    #                     price_history = self.prepare_price_history_for_db(price_data)
+    #                     self.db_access.add_price_history(session, asset.ticker, price_history)
+    #                     logging.info(f"Updated {asset.ticker} with {len(price_history)} new entries")
+    #                 else:
+    #                     logging.info(f"No new data for {asset.ticker}")
+    #             except Exception as e:
+    #                 logging.error(f"Error updating {asset.ticker}: {str(e)}")
+    #         else:
+    #             logging.info(f"{asset.ticker} is up to date")
 
 
 # Usage example
