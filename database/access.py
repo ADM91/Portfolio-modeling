@@ -264,7 +264,7 @@ class DatabaseAccess:
         """
         return session.query(ActionType).filter(ActionType.name == name).first()
 
-    def get_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int) -> Session.query:
+    def get_buy_sell_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int) -> Session.query:
 
         actions = (
             session.query(Action, ActionType.name.label('action_type_name'))
