@@ -49,7 +49,6 @@ class MetricService:
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'value_in_currency'])
 
-
     @with_session
     def get_holdings_in_base_currency_general(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
         """
@@ -83,7 +82,6 @@ class MetricService:
             return final_df
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'value_holdings'])
-
 
     @with_session
     def get_holdings_in_base_currency_general_old(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
@@ -131,7 +129,6 @@ class MetricService:
             return final_df
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'metric', 'value'])
-
 
     def _get_value_invested(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int) -> pd.DataFrame:
         """
@@ -212,52 +209,18 @@ class MetricService:
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'value_invested_discrete', 'value_invested_cumulative'])
 
-    @with_session
-    def get_currency_conversion_rates(self, session: Session, from_currency_id: int, to_currency_id: int, start_date, end_date) -> pd.DataFrame:
-        """
-        Get currency conversion rates for a given date range.
+    def get_cost_basis(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int) -> pd.DataFrame:
 
-        Args:
-            session (Session): The database session.
-            from_currency_id (int): The ID of the currency to convert from.
-            to_currency_id (int): The ID of the currency to convert to.
-            start_date (datetime): The start date of the conversion range.
-            end_date (datetime): The end date of the conversion range.
+        return
 
-        Returns:
-            pd.DataFrame: A DataFrame containing daily conversion rates.
-        """
-
-        conversion_rates = self.db_access.get_currency_conversion_time_series(session, from_currency_id, to_currency_id, start_date, end_date)
-
-        # Convert to DataFrame
-        df = pd.read_sql(conversion_rates.statement, session.bind)
-
-        # Ensure the date column is datetime type
-        df['date'] = pd.to_datetime(df['date'])
-        
-        # Calculate conversion rate
-        df['conversion_rate'] = df['from_currency_price'] / df['to_currency_price']
-
-        # Create a complete date range
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-        full_df = pd.DataFrame(index=date_range)
-        full_df.index.name = 'date'
-
-        # Merge with the conversion rates and forward fill missing values
-        result_df = full_df.merge(df[['date', 'conversion_rate']], left_index=True, right_on='date', how='left')
-        result_df['conversion_rate'] = result_df['conversion_rate'].ffill()
-        result_df['conversion_rate'] = result_df['conversion_rate'].bfill()
-        result_df = result_df.reset_index(drop=True)
-
-        return result_df
 
 
 if __name__ == "__main__":
 
     import time
+    from frontend.graphs import multi_portfolio_value_graph, holdings_and_invested_value_graph_v2
 
-    # TODO: debug spike in multi_portfolio_value graph
+    # TODO: DONE ~~debug spike in holdings_and_invested_value graph~~
     # TODO: DONE ~~Aggregate portfolio-asset view on holdings_in_base_currency and value_invested~~
     # TODO: cost basis and unrealized gain/loss
     # TODO: realized gain/loss
@@ -265,204 +228,60 @@ if __name__ == "__main__":
     # TODO: benchmark comparison - time-weighted return and total return (based on value_invested)
     # TODO: sharpe ratio - on what? (time-weighted return - like a piecewise return - break down return into periods of constant value invested)
 
-    asset = 4
-    currency = 1
-
     metric_service = MetricService(DatabaseAccess())
 
     start_time = time.time()
-    result = metric_service.get_holdings_in_base_currency_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=currency)  # Example portfolio, asset, and base currency IDs        
+    result_holdings_value = metric_service.get_holdings_in_base_currency_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1)  # Example portfolio, asset, and base currency IDs        
     end_time = time.time()
     print(f"Runtime for get_holdings_in_base_currency: {end_time - start_time:.3f} seconds")
 
     start_time = time.time()
-    result3 = metric_service.get_value_invested_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=currency)  # Example portfolio, asset, and base currency IDs
+    result_invested_value = metric_service.get_value_invested_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1)  # Example portfolio, asset, and base currency IDs
     end_time = time.time()
     print(f"Runtime for get_value_invested: {end_time - start_time:.3f} seconds")
 
-
-    # start_time = time.time()
-    # result5 = metric_service.get_holdings_general_in_base_currency_v2(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=currency)
-    # end_time = time.time()
-    # print(f"Runtime for get_holdings_general_in_base_currency: {end_time - start_time:.3f} seconds")
-
-    # ----------------------------------------------------------------------------------------
-
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import seaborn as sns
+    # graph
+    multi_portfolio_value_graph(result_holdings_value)
+    holdings_and_invested_value_graph_v2(result_holdings_value, result_invested_value)
 
 
-    def generate_color_palette(n):
-        return plt.cm.get_cmap('tab20')(np.linspace(0, 1, n))
-
-    # Assuming df_melted is your new melted dataframe
-    # It should have columns: 'date', 'portfolio_id', 'asset_id', 'value'
-    df_melted = result
-
-    # Convert date to datetime if it's not already
-    df_melted['date'] = pd.to_datetime(df_melted['date'])
-
-    # Sort the dataframe
-    df_melted = df_melted.sort_values(['date', 'portfolio_id', 'asset_id'])
-
-    # Get unique portfolio_ids
-    portfolios = df_melted['portfolio_id'].unique()
-
-    # Sort portfolios to ensure consistent stacking order
-    sorted_portfolios = sorted(portfolios)
-
-    # Create a figure and axis
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    bottom = np.zeros(len(df_melted['date'].unique()))
-
-    for portfolio in sorted_portfolios:
-        portfolio_data = df_melted[df_melted['portfolio_id'] == portfolio]
-        unique_assets = portfolio_data['asset_id'].unique()
-        
-        # Generate a color palette for assets in this portfolio
-        asset_colors = generate_color_palette(len(unique_assets))
-        
-        for i, asset in enumerate(unique_assets):
-            asset_data = portfolio_data[portfolio_data['asset_id'] == asset]
-            values = asset_data.set_index('date')['value_holdings'].reindex(df_melted['date'].unique()).fillna(0).values
-            
-            ax.fill_between(df_melted['date'].unique(), bottom, bottom + values, 
-                            label=f'Portfolio {portfolio} - Asset {asset}',
-                            color=asset_colors[i], alpha=0.7)
-            
-            bottom += values
-
-    ax.set_xlabel('Date')
-    ax.set_ylabel('Value')
-    ax.set_title('Stacked Portfolio Assets Over Time')
-
-    # Adjust legend
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[::-1], labels[::-1], loc='upper left', bbox_to_anchor=(1, 1))
-
-    plt.tight_layout()
-    plt.savefig('multi_portfolio_value.png')
-
-    
-    # ----------------------------------------------------------------------------------------
-
-    # Merge the dataframes on date
-    merged_df = pd.merge(result, result3, on=['date','portfolio_id','asset_id'], how='outer').sort_values('date')
-    
-    # Forward fill any missing values
-    merged_df[['value_holdings', 'value_invested_cumulative']] = merged_df[['value_holdings', 'value_invested_cumulative']].ffill()
-
-    merged_df_agg = merged_df.groupby('date').sum().reset_index()
-
-    # Create figure and axis
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    # Convert values to millions of ISK
-    holdings = merged_df_agg['value_holdings']
-    invested = merged_df_agg['value_invested_cumulative']
-    dates = merged_df_agg['date']
-
-    # Plot holdings in base currency
-    ax.plot(dates, holdings, color='blue', label='Holdings in Base Currency')
-
-    # Create shaded area for value invested
-    ax.fill_between(dates, 0, invested, 
-                    where=(invested >= 0), color='red', alpha=0.3, 
-                    label='Positive Value Invested')
-    ax.fill_between(dates, 0, invested, 
-                    where=(invested < 0), color='green', alpha=0.3, 
-                    label='Negative Value Invested')
-
-    # Set labels and title
-    ax.set_xlabel('Date')
-    ax.set_ylabel('currency')
-    ax.set_title('Holdings in Base Currency and Value Invested Over Time')
-
-    # Add legend
-    ax.legend(loc='upper left')
-
-    # Adjust layout and save
-    plt.tight_layout()
-    plt.savefig('holdings_and_invested_value.png')
-    print('Plot saved as holdings_and_invested_value.png')
 
     # @with_session
-    # def get_holdings_general_in_base_currency(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
+    # def get_currency_conversion_rates(self, session: Session, from_currency_id: int, to_currency_id: int, start_date, end_date) -> pd.DataFrame:
     #     """
-    #     Calculate holdings in base currency for given portfolios and assets over their entire date range.
-
-    #     This method fetches data from the database and performs all calculations in memory
-    #     using pandas DataFrames. No intermediate results are stored back to the database.
+    #     Get currency conversion rates for a given date range.
 
     #     Args:
     #         session (Session): The database session.
-    #         portfolio_ids (List[int]): The IDs of the portfolios to calculate holdings for.
-    #         asset_ids (List[int]): The IDs of the assets to calculate holdings for.
-    #         currency_id (int): The ID of the base currency to convert holdings to.
+    #         from_currency_id (int): The ID of the currency to convert from.
+    #         to_currency_id (int): The ID of the currency to convert to.
+    #         start_date (datetime): The start date of the conversion range.
+    #         end_date (datetime): The end date of the conversion range.
 
     #     Returns:
-    #         pd.DataFrame: A DataFrame containing the holdings in base currency.
+    #         pd.DataFrame: A DataFrame containing daily conversion rates.
     #     """
 
-    #     all_data = []
+    #     conversion_rates = self.db_access.get_currency_conversion_time_series(session, from_currency_id, to_currency_id, start_date, end_date)
 
-    #     for portfolio_id in portfolio_ids:
-    #         for asset_id in asset_ids:
-    #             # Fetch raw data (data returned directly to DataFrame)
-    #             in_kind_ts = self.db_access.get_portfolio_asset_time_series_df(session, portfolio_id, asset_id)
+    #     # Convert to DataFrame
+    #     df = pd.read_sql(conversion_rates.statement, session.bind)
 
-    #             if len(in_kind_ts) > 0:
-    #                 start_date = in_kind_ts['date'].min()
-    #                 end_date = in_kind_ts['date'].max()
+    #     # Ensure the date column is datetime type
+    #     df['date'] = pd.to_datetime(df['date'])
+        
+    #     # Calculate conversion rate
+    #     df['conversion_rate'] = df['from_currency_price'] / df['to_currency_price']
 
-    #                 # Fetch asset and currency price history (data returned directly to DataFrames)
-    #                 asset_prices = self.db_access.get_asset_price_history_df(session, asset_id, start_date, end_date)
-    #                 asset_prices.rename(columns={'close': 'close_asset'}, inplace=True)
-    #                 currency_prices = self.db_access.get_asset_price_history_df(session, currency_id, start_date, end_date)
-    #                 currency_prices.rename(columns={'close': 'close_currency'}, inplace=True)
+    #     # Create a complete date range
+    #     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    #     full_df = pd.DataFrame(index=date_range)
+    #     full_df.index.name = 'date'
 
-    #                 # Merge the three DataFrames on date
-    #                 merged_df = pd.merge(in_kind_ts, asset_prices, on='date', how='outer', suffixes=('', '_asset'))
-    #                 merged_df = pd.merge(merged_df, currency_prices, on='date', how='outer', suffixes=('', '_currency'))
+    #     # Merge with the conversion rates and forward fill missing values
+    #     result_df = full_df.merge(df[['date', 'conversion_rate']], left_index=True, right_on='date', how='left')
+    #     result_df['conversion_rate'] = result_df['conversion_rate'].ffill()
+    #     result_df['conversion_rate'] = result_df['conversion_rate'].bfill()
+    #     result_df = result_df.reset_index(drop=True)
 
-    #                 # Ffill the dataframe (assume weekend values equal to close on friday)
-    #                 merged_df = merged_df.ffill()
-
-    #                 # Calculate the value in base currency
-    #                 merged_df['value_in_currency'] = merged_df['quantity'] * merged_df['close_asset'] / merged_df['close_currency']
-
-    #                 # Add portfolio and asset identifiers
-    #                 merged_df['portfolio_id'] = portfolio_id
-    #                 merged_df['asset_id'] = asset_id
-
-    #                 merged_df = merged_df[['date', 'portfolio_id', 'asset_id', 'value_in_currency']]
-
-    #                 all_data.append(merged_df)
-
-    #     if all_data:
-    #         # Initialize an empty dictionary to store DataFrames for each portfolio/asset
-    #         merged_data = {}
-            
-    #         # Iterate through all_data to organize by portfolio/asset
-    #         for df in all_data:
-    #             key = (int(df['portfolio_id'].iloc[0]), int(df['asset_id'].iloc[0]))
-    #             df =  df[['date', 'value_in_currency']]  # Select only necessary columns
-    #             if key not in merged_data:
-    #                 merged_data[key] = df
-    #             else:
-    #                 merged_data[key] = pd.merge(merged_data[key], df, on=['date'], how='outer')
-            
-    #         # Merge all DataFrames on the date column
-    #         final_df = pd.DataFrame()
-    #         for key, df in merged_data.items():
-    #             df.rename(columns={'value_in_currency': f'value_in_currency_{key[0]}_{key[1]}'}, inplace=True)
-    #             if final_df.empty:
-    #                 final_df = df
-    #             else:
-    #                 final_df = pd.merge(final_df, df, on='date', how='outer')
-            
-    #         return final_df.sort_values('date').reset_index(drop=True)
-    #     else:
-    #         return pd.DataFrame()  # Return an empty DataFrame if no data was found
+    #     return result_df
