@@ -61,7 +61,6 @@ def multi_portfolio_value_graph(df_melted):
     plt.savefig('frontend/graphs/multi_portfolio_value.png')
 
 
-
 def holdings_and_invested_value_graph(result_holdings_value, result_invested_value):
     
     # Merge the dataframes on date
@@ -103,7 +102,6 @@ def holdings_and_invested_value_graph(result_holdings_value, result_invested_val
     plt.tight_layout()
     plt.savefig('frontend/graphs/holdings_and_invested_value.png')
     print('Plot saved as holdings_and_invested_value.png')
-
 
 
 def holdings_and_invested_value_graph_v2(result_holdings_value, result_invested_value):
@@ -161,3 +159,202 @@ def holdings_and_invested_value_graph_v2(result_holdings_value, result_invested_
     # Adjust layout and save
     plt.tight_layout()
     plt.savefig('frontend/graphs/holdings_and_invested_value_graph_v2.png')
+
+
+def holdings_and_cost_basis_graph(holdings_df: pd.DataFrame, cost_basis_df: pd.DataFrame, 
+                                 portfolio_id: int, asset_id: int, currency_id: int) -> None:
+    """
+    Plot the value of holdings and cost basis for a specific asset in a portfolio.
+
+    Args:
+        holdings_df (pd.DataFrame): DataFrame output from get_holdings_in_base_currency_general
+        cost_basis_df (pd.DataFrame): DataFrame output from get_cost_basis
+        portfolio_id (int): The ID of the portfolio to plot
+        asset_id (int): The ID of the asset to plot
+        currency_id (int): The ID of the currency used
+
+    Returns:
+        None (displays the plot)
+    """
+    # Filter holdings data for the specific portfolio and asset
+    asset_holdings = holdings_df[(holdings_df['portfolio_id'] == portfolio_id) & 
+                                 (holdings_df['asset_id'] == asset_id)]
+
+    # Merge holdings and cost basis data
+    merged_df = pd.merge(asset_holdings, cost_basis_df, on='date', how='outer')
+    merged_df = merged_df.sort_values('date')
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Plot holdings value
+    ax.plot(merged_df['date'], merged_df['value_holdings'], label='Holdings Market Value', color='blue')
+
+    # Plot total cost basis
+    ax.plot(merged_df['date'], merged_df['cumulative_cost'], label='Cost Basis Value', color='red')
+
+    # Set labels and title
+    ax.set_xlabel('Date')
+    ax.set_ylabel(f'Value (Currency ID: {currency_id})')
+    ax.set_title(f'Holdings Value vs Cost Basis for Portfolio {portfolio_id}, Asset {asset_id}')
+
+    # Format x-axis to show dates nicely
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.gcf().autofmt_xdate()  # Rotate and align the tick labels
+
+    # Add legend
+    ax.legend()
+
+    # Add grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.7)
+
+    # Show the plot
+    plt.tight_layout()
+    plt.savefig('frontend/graphs/holdings_and_cost_basis_graph.png')
+
+
+def price_and_cost_basis(holdings_df: pd.DataFrame, cost_basis_df: pd.DataFrame, 
+                                    portfolio_id: int, asset_id: int, currency_id: int) -> None:
+    """
+    Plot the asset market value and cost basis for a specific asset in a portfolio.
+
+    Args:
+        holdings_df (pd.DataFrame): DataFrame containing asset holdings data
+        cost_basis_df (pd.DataFrame): DataFrame containing cost basis data
+        portfolio_id (int): The ID of the portfolio to plot
+        asset_id (int): The ID of the asset to plot
+        currency_id (int): The ID of the currency used
+
+    Returns:
+        None (displays the plot)
+    """
+    # Filter holdings data for the specific portfolio and asset
+    asset_holdings = holdings_df[(holdings_df['portfolio_id'] == portfolio_id) & 
+                                 (holdings_df['asset_id'] == asset_id)]
+
+    # Merge holdings and cost basis data
+    merged_df = pd.merge(asset_holdings, cost_basis_df, on='date', how='outer')
+    merged_df = merged_df.sort_values('date')
+    merged_df['market_price'] = merged_df['value_holdings'] / merged_df['cumulative_quantity']
+
+
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Plot asset market value
+    ax.plot(merged_df['date'], merged_df['market_price'], label='Market Price', color='green')
+
+    # Plot cost basis
+    ax.plot(merged_df['date'], merged_df['cost_basis'], label='Cost Basis Price', color='orange')
+
+    # Set labels and title
+    ax.set_xlabel('Date')
+    ax.set_ylabel(f'Value (Currency ID: {currency_id})')
+    ax.set_title(f'Asset Market Price vs Cost Basis for Portfolio {portfolio_id}, Asset {asset_id}')
+
+    # Format x-axis to show dates nicely
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.gcf().autofmt_xdate()  # Rotate and align the tick labels
+
+    # Add legend
+    ax.legend()
+
+    # Add grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.7)
+
+    # Show the plot
+    plt.tight_layout()
+    plt.savefig('frontend/graphs/price_and_cost_basis.png')
+
+
+def unrealized_gain_loss_percentage_graph(unrealized_gain_loss_df: pd.DataFrame, 
+                                          portfolio_id: int, asset_id: int, currency_id: int) -> None:
+    """
+    Plot the unrealized gain/loss percentage for a specific asset in a portfolio.
+
+    Args:
+        unrealized_gain_loss_df (pd.DataFrame): DataFrame output from get_unrealized_gain_loss
+        portfolio_id (int): The ID of the portfolio to plot
+        asset_id (int): The ID of the asset to plot
+        currency_id (int): The ID of the currency used
+
+    Returns:
+        None (displays the plot)
+    """
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Plot unrealized gain/loss percentage
+    ax.plot(unrealized_gain_loss_df['date'], unrealized_gain_loss_df['unrealized_gain_loss_percentage'], 
+            label='Unrealized Gain/Loss %', color='green')
+
+    # Set labels and title
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Unrealized Gain/Loss (%)')
+    ax.set_title(f'Unrealized Gain/Loss Percentage for Portfolio {portfolio_id}, Asset {asset_id}, Currency {currency_id}')
+
+    # Format x-axis to show dates nicely
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.gcf().autofmt_xdate()  # Rotate and align the tick labels
+
+    # Add legend
+    ax.legend()
+
+    # Add grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.7)
+
+    # Add a horizontal line at y=0 to show the break-even point
+    ax.axhline(y=0, color='r', linestyle='--')
+
+    # Show the plot
+    plt.tight_layout()
+    plt.savefig('frontend/graphs/unrealized_gain_loss_percentage_graph.png')
+
+
+
+def total_unrealized_gain_loss_graph(unrealized_gain_loss_df):
+    # Aggregate data by date
+    df_agg = unrealized_gain_loss_df.groupby('date').agg({
+        'cumulative_cost': 'sum',
+        'value_in_currency': 'sum',
+        'unrealized_gain_loss': 'sum'
+    }).reset_index()
+
+    df_agg['unrealized_gain_loss_percentage'] = (df_agg['unrealized_gain_loss'] / df_agg['cumulative_cost']) * 100
+
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    dates = df_agg['date']
+
+    # Plot cumulative cost and value in currency
+    ax.plot(dates, df_agg['unrealized_gain_loss_percentage'], color='blue', label='Cumulative Cost')
+    # Add a horizontal line at y=0 to show the break-even point
+    ax.axhline(y=0, color='r', linestyle='--')
+
+    # Set labels and title for the first subplot
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Currency')
+    ax.set_title('Cumulative Cost and Value in Currency Over Time')
+    ax.legend(loc='upper left')
+
+    # # Plot unrealized gain/loss
+    # ax2.bar(dates, df_agg['unreali_gain_loss_percentage'], 
+    #         width=25, align='center'zed, color='purple', alpha=0.7)
+
+    # Set labels and title for the second subplot
+    # ax2.set_xlabel('Date')
+    # ax2.set_ylabel('Unrealized Gain/Loss')
+    # ax2.set_title('Unrealized Gain/Loss Over Time')
+
+    # Format x-axis to show dates properly
+    # ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
+    # ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    # plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+    # Adjust layout and save
+    plt.tight_layout()
+    plt.savefig('frontend/graphs/total_unrealized_gain_loss_percentage_graph.png')

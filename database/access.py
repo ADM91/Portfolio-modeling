@@ -207,7 +207,6 @@ class DatabaseAccess:
         # The result is now available as exchange_rate.exchange_rate
         return exchange_rate.exchange_rate
 
-
     def get_currency_conversion_time_series(self, session: Session, from_currency_id: int, to_currency_id: int, start_date: datetime, end_date: datetime):
 
         # Fetch price history for both currencies
@@ -334,44 +333,6 @@ class DatabaseAccess:
             The caller is responsible for committing or rolling back the session as needed.
         """
         session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
-
-    # def update_portfolio_holdings_and_action(self, session: Session, action: Action) -> None:
-    #     """
-    #     Update portfolio holdings based on an action and mark the action as processed.
-
-    #     Args:
-    #         session (Session): SQLAlchemy session
-    #         action (Action): The action to process
-    #     """
-    #     quantity_old = session.query(PortfolioHolding.quantity_new)\
-    #         .join(Action)\
-    #         .filter(
-    #             (Action.portfolio_id == action.portfolio_id) &
-    #             (Action.asset_id == action.asset_id)
-    #         )\
-    #         .order_by(PortfolioHolding.date.desc())\
-    #         .first()
-
-    #     quantity_old = quantity_old[0] if quantity_old else 0
-
-    #     if action.action_type_id in (ActionTypeEnum.buy.value, ActionTypeEnum.dividend.value):
-    #         quantity_change = action.quantity
-    #     elif action.action_type_id == ActionTypeEnum.sell.value:
-    #         quantity_change = -action.quantity
-    #     else:
-    #         quantity_change = 0
-
-    #     session.add(PortfolioHolding(
-    #         action_id=action.asset_id,
-    #         portfolio_id=action.portfolio_id,
-    #         asset_id=action.asset_id,
-    #         quantity_change=quantity_change,
-    #         quantity_new=quantity_old+quantity_change,
-    #         date=action.date,
-    #         action=action
-    #     ))
-
-    #     session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
 
     def get_last_holdings_time_series_update(self, session: Session) -> Optional[datetime]:
         """
@@ -515,7 +476,6 @@ class DatabaseAccess:
 
         return df
 
-
     def get_portfolio_asset_time_series(self, session: Session, portfolio_id: int, asset_id: int) -> List[PortfolioHoldingsTimeSeries]:
         """
         Get the complete time series of holdings for a specific asset in a specific portfolio.
@@ -532,7 +492,6 @@ class DatabaseAccess:
             PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
             PortfolioHoldingsTimeSeries.asset_id == asset_id
         ).order_by(PortfolioHoldingsTimeSeries.date).all()
-
 
     def get_portfolio_asset_time_series_df(self, session: Session, portfolio_id: int, asset_id: int) -> pd.DataFrame:
         """
@@ -630,7 +589,6 @@ class DatabaseAccess:
                 session.add(new_entry)
 
             start_date += timedelta(days=1)
-
 
     def insert_holding_time_series_ffill(self, session: Session, action: Action, end_date: datetime) -> None:
         """
