@@ -1,5 +1,6 @@
 
 import logging
+import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import List
@@ -290,16 +291,65 @@ class MetricService:
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cumulative_quantity', 'cumulative_cost', 'cost_basis', 'value_in_currency', 'unrealized_gain_loss', 'unrealized_gain_loss_percentage'])
 
-    @with_session
-    def get_time_weighted_return_general(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
+    def get_time_weighted_return_general(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
 
         # Get the unrealized gain/loss data for all portfolio-asset combinations
-        total_unrealized_gain_loss = self.get_unrealized_gain_loss_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1)
+        holdings_value = self.get_holdings_in_base_currency_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id)
+        value_invested = self.get_value_invested_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id)
+
+        # merge
+        data = pd.merge(left=value_invested, right=holdings_value, on=['date', 'portfolio_id', 'asset_id'], how='outer')
 
         # aggregate on date
-        tugl_agg = self.aggregate_on_date(df=total_unrealized_gain_loss, column='unrealized_gain_loss')
+        data_agg = self.aggregate_on_date(df=data, columns=['value_invested_discrete', 'value_holdings'])
+        data_agg.rename(columns={'value_invested_discrete': 'cash_flows'}, inplace=True)
 
-        return
+        # Calculate periodic (daily) returns
+        adjusted_daily_returns = (data_agg['value_holdings'][1:].values - data_agg['cash_flows'][1:].values) / data_agg['value_holdings'][:-1].values
+        adjusted_daily_returns = np.insert(adjusted_daily_returns, 0, 1)
+
+        # Calculate cumulative returns time series, adn add to data_agg
+        cumulative_returns = np.cumprod(adjusted_daily_returns)
+        data_agg['daily_adjusted_return'] = adjusted_daily_returns
+        data_agg['time_weighted_return'] = cumulative_returns
+
+        return data_agg[['date', 'daily_adjusted_return', 'time_weighted_return']]
+
+
+    def get_sharpe_ratio(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, risk_free_rate: float = 0.0, rolling_window_periods: int = 180, periods_per_year: int = 365) -> pd.DataFrame:
+        """
+        Calculate the Sharpe ratio based on the time-weighted return over a rolling window.
+
+        Args:
+            twr_df (pd.DataFrame): DataFrame containing the time-weighted return data.
+            risk_free_rate (float): The risk-free rate (default: 0.0).
+            rolling_window (int): The number of days for the rolling window calculation (default: 30).
+            periods_per_year (int): Number of periods per year (default: 252 for daily data).
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the rolling Sharpe ratio.
+        """
+        twr_df = self.get_time_weighted_return_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id)
+
+        # Calculate excess return
+        excess_return = twr_df['time_weighted_return']
+
+        # Calculate rolling mean and standard deviation
+        rolling_annualized_return = excess_return.rolling(window=rolling_window_periods).apply(lambda x: x.iloc[-1] - x.iloc[0])*periods_per_year/rolling_window_periods
+        rolling_excess_annualized_return = rolling_annualized_return-risk_free_rate
+        rolling_std = excess_return.rolling(window=rolling_window_periods).std()
+
+        # Calculate annualized Sharpe ratio
+        rolling_sharpe_ratio = rolling_excess_annualized_return / rolling_std
+
+        # Create a DataFrame with the rolling Sharpe ratio
+        sharpe_df = pd.DataFrame({
+            'date': twr_df['date'],
+            'rolling_sharpe_ratio': rolling_sharpe_ratio
+        })
+
+        return sharpe_df[['date', 'rolling_sharpe_ratio']]
+
 
     def aggregate_on_date(self, df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
 
@@ -307,9 +357,6 @@ class MetricService:
         aggregated_df = df.groupby('date')[columns].sum().reset_index()
 
         return aggregated_df
-
-
-
 
 
 if __name__ == "__main__":
@@ -320,12 +367,23 @@ if __name__ == "__main__":
     # TODO: DONE ~~debug spike in holdings_and_invested_value graph~~
     # TODO: DONE ~~Aggregate portfolio-asset view on holdings_in_base_currency and value_invested~~
     # TODO: DONE ~~cost basis and unrealized gain/loss~~
+    # TODO: DONE ~~time-weighted return~~
+    # TODO: time range on calculations? 
     # TODO: realized gain/loss, each sale 1 line - fields: realized gain/loss, implied tax
-    # TODO: time-weighted return
-    # TODO: benchmark comparison - time-weighted return and total return (based on value_invested)
-    # TODO: sharpe ratio - on what? (time-weighted return - like a piecewise return - break down return into periods of constant value invested)
+    # TODO: benchmark comparison - time-weighted return
+    # TODO: DONE ~~sharpe ratio - on what? (time-weighted return - like a piecewise return - break down return into periods of constant value invested)~~
 
     metric_service = MetricService(DatabaseAccess())
+
+    start_time = time.time()
+    result_sr = metric_service.get_sharpe_ratio(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1, risk_free_rate=0.0, rolling_window_periods=90, periods_per_year=365)
+    end_time = time.time()
+    print(f"Runtime for get_sharpe_ratio: {end_time - start_time:.3f} seconds")
+
+    start_time = time.time()
+    result_twr = metric_service.get_time_weighted_return_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1)
+    end_time = time.time()
+    print(f"Runtime for get_time_weighted_return_general: {end_time - start_time:.3f} seconds")
 
     start_time = time.time()
     result_holdings_value = metric_service.get_holdings_in_base_currency_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1)  # Example portfolio, asset, and base currency IDs        

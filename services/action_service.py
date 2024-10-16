@@ -136,6 +136,15 @@ class ActionService:
 
         return
     
+    @with_session
+    def update_holdings_time_series_to_current_day(self, session: Session) -> None:
+
+        # After processing all unprocessed actions, update the time series to the current day
+        self.db_access.update_holdings_time_series_to_current_day(session)
+
+        return
+
+
 
 if __name__ == "__main__":
     db_access = DatabaseAccess()
@@ -143,7 +152,7 @@ if __name__ == "__main__":
     
     # actions = action_service.read_actions_from_excel("_junk/test_action_data.xlsx")
     # action_service.insert_actions(actions)
-    action_service.process_actions()
-    
+    # action_service.process_actions()
+    action_service.update_holdings_time_series_to_current_day()
 
     print('done')

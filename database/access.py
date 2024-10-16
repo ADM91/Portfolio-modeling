@@ -707,6 +707,61 @@ class DatabaseAccess:
             logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
             raise e
 
+    def update_holdings_time_series_to_current_day(self, session: Session) -> None:
+        """
+        Update the portfolio holdings time series for all portfolios and assets up to the current day.
+
+        This method finds the last date in the holdings time series for each portfolio-asset combination
+        and fills in any missing dates up to the current day, using the last known quantity.
+
+        Args:
+            session (Session): SQLAlchemy session
+
+        Returns:
+            None
+        """
+        current_date = datetime.now().date()
+
+        # Get the latest date for each portfolio-asset combination
+        latest_dates = session.query(
+            PortfolioHoldingsTimeSeries.portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id,
+            func.max(PortfolioHoldingsTimeSeries.date).label('last_date')
+        ).group_by(
+            PortfolioHoldingsTimeSeries.portfolio_id,
+            PortfolioHoldingsTimeSeries.asset_id
+        ).subquery()
+
+        # Join with the main table to get the latest quantity
+        latest_holdings = session.query(
+            PortfolioHoldingsTimeSeries
+        ).join(
+            latest_dates,
+            and_(
+                PortfolioHoldingsTimeSeries.portfolio_id == latest_dates.c.portfolio_id,
+                PortfolioHoldingsTimeSeries.asset_id == latest_dates.c.asset_id,
+                PortfolioHoldingsTimeSeries.date == latest_dates.c.last_date
+            )
+        ).all()
+
+        # Update or insert new entries
+        for holding in latest_holdings:
+            start_date = (holding.date + timedelta(days=1)).date()
+            if start_date <= current_date:
+                date_range = pd.date_range(start=start_date, end=current_date)
+                new_entries = [
+                    PortfolioHoldingsTimeSeries(
+                        portfolio_id=holding.portfolio_id,
+                        asset_id=holding.asset_id,
+                        date=date,
+                        quantity=holding.quantity
+                    )
+                    for date in date_range
+                ]
+                session.bulk_save_objects(new_entries)
+
+        session.commit()
+
 
 if __name__ == "__main__":
 

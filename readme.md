@@ -35,6 +35,7 @@
  - ~~simple plotting for proof of concept~~
  - ~~want to be able to view metrics for combinations of portfolios and assets~~
  - adding core metric calcualtion functions - ~~value invested~~ cost basis, unrealized gain/loss, realized gain/loss, time-weighted return, sharpe ratio
+ - dividends robust
  - backend services as fastapi 
  - frontend
  - action defined on precise datetime

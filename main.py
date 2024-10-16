@@ -25,6 +25,7 @@ def startup():
     actions = action_service.read_actions_from_excel(os.environ.get("PATH_ACTIONS"))
     action_service.insert_actions(actions)  # TODO: this reinserts existing actions
     action_service.process_actions()
+    action_service.update_holdings_time_series_to_current_day()
 
     # MetricService calculate metrics
     metric_service = MetricService(db_access)
