@@ -7,7 +7,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, joinedload, Session
 from typing import List, Dict, Optional, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from functools import wraps
 import pandas as pd
 
@@ -450,7 +450,7 @@ class DatabaseAccess:
             PriceHistory.date.between(start_date, end_date)
         ).order_by(PriceHistory.date).all()
 
-    def get_asset_price_history_df(self, session: Session, asset_id: int, start_date: datetime, end_date: datetime) -> pd.DataFrame:
+    def get_asset_price_history_df(self, session: Session, asset_id: int, start_date: date, end_date: date) -> pd.DataFrame:
         """
         Get asset prices for a specific asset between the specified date range as a pandas DataFrame.
 
@@ -468,7 +468,8 @@ class DatabaseAccess:
         # Construct the SQL query
         query = select(PriceHistory.asset_id, PriceHistory.date, PriceHistory.close).filter(
             PriceHistory.asset_id == asset_id,
-            PriceHistory.date.between(start_date, end_date)
+            PriceHistory.date >= start_date,
+            PriceHistory.date < end_date + timedelta(days=1)  # ensure that we don´t miss the last day
         ).order_by(PriceHistory.date)
 
         # Execute the query and fetch results directly into a DataFrame

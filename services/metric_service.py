@@ -2,7 +2,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date
 from typing import List
 
 from database.access import DatabaseAccess, with_session, Session
@@ -13,18 +13,18 @@ class MetricService:
     def __init__(self, db_access: DatabaseAccess):
         self.db_access = db_access
 
-    def _get_holdings_in_base_currency(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int) -> pd.DataFrame:
+    @with_session
+    def _get_holdings_in_base_currency(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int, start_date: date=date(1970, 1, 1), end_date: date=datetime.now().date()) -> pd.DataFrame:
         """
         Calculate holdings in base currency for a given portfolio and date range.
 
-        This method fetches data from the database and performs all calculations in memory
-        using pandas DataFrames. No intermediate results are stored back to the database.
-
         Args:
-            currency_id (int): The ID of the base currency to convert holdings to.
+            session (Session): The database session.
             portfolio_id (int): The ID of the portfolio to calculate holdings for.
-            start_date (datetime): The start date of the date range to consider.
-            end_date (datetime): The end date of the date range to consider.
+            asset_id (int): The ID of the asset to calculate holdings for.
+            currency_id (int): The ID of the base currency to convert holdings to.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A DataFrame containing the holdings in base currency.
@@ -33,35 +33,34 @@ class MetricService:
         in_kind_ts = self.db_access.get_portfolio_asset_time_series_df(session, portfolio_id, asset_id)
 
         if not in_kind_ts.empty:
-            start_date, end_date = in_kind_ts['date'].min(), in_kind_ts['date'].max()
+            # start_date, end_date = in_kind_ts['date'].min(), in_kind_ts['date'].max()
+            in_kind_ts = in_kind_ts[(in_kind_ts['date'] >= pd.to_datetime(start_date)) & (in_kind_ts['date'] <= pd.to_datetime(end_date))]
 
             asset_prices = self.db_access.get_asset_price_history_df(session, asset_id, start_date, end_date)
             currency_prices = self.db_access.get_asset_price_history_df(session, currency_id, start_date, end_date)
 
-            merged_df = pd.merge(in_kind_ts, asset_prices[['date', 'close']], on='date', how='outer')
-            merged_df = pd.merge(merged_df, currency_prices[['date', 'close']], on='date', how='outer', suffixes=('_asset', '_currency'))
+            df = pd.merge(in_kind_ts, asset_prices[['date', 'close']], on='date', how='left')
+            df = pd.merge(df, currency_prices[['date', 'close']], on='date', how='left', suffixes=('_asset', '_currency'))
 
-            merged_df['value_in_currency'] = merged_df['quantity'] * merged_df['close_asset'] / merged_df['close_currency']
-            merged_df['portfolio_id'] = portfolio_id
-            merged_df['asset_id'] = asset_id
+            df['value_in_currency'] = df['quantity'] * df['close_asset'] / df['close_currency']
+            df['portfolio_id'] = portfolio_id
+            df['asset_id'] = asset_id
 
-            return merged_df[['date', 'portfolio_id', 'asset_id', 'value_in_currency']]
+            return df[['date', 'portfolio_id', 'asset_id', 'value_in_currency']]
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'value_in_currency'])
-
-    @with_session
-    def get_holdings_in_base_currency_general(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
+    
+    def get_holdings_in_base_currency_general(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, start_date: date=date(1970, 1, 1), end_date: date=datetime.now().date()) -> pd.DataFrame:
         """
-        Calculate holdings in base currency for given portfolios and assets over their entire date range.
-
-        This method fetches data from the database and performs all calculations in memory
-        using pandas DataFrames. No intermediate results are stored back to the database.
+        Calculate holdings in base currency for given portfolios and assets over a specified date range.
 
         Args:
             session (Session): The database session.
             portfolio_ids (List[int]): The IDs of the portfolios to calculate holdings for.
             asset_ids (List[int]): The IDs of the assets to calculate holdings for.
             currency_id (int): The ID of the base currency to convert holdings to.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A melted DataFrame containing the holdings in base currency.
@@ -70,76 +69,88 @@ class MetricService:
 
         for portfolio_id in portfolio_ids:
             for asset_id in asset_ids:
-                holdings_df = self._get_holdings_in_base_currency(session, portfolio_id, asset_id, currency_id)
+                holdings_df = self._get_holdings_in_base_currency(portfolio_id, asset_id, currency_id, start_date, end_date)
                 if not holdings_df.empty:
                     all_data.append(holdings_df)
 
         if all_data:
-            final_df = pd.concat(all_data, ignore_index=True)
-            final_df = final_df.sort_values(['date', 'portfolio_id', 'asset_id']).reset_index(drop=True)
-            final_df.rename(columns={'value_in_currency': 'value_holdings'}, inplace=True)
+            df = pd.concat(all_data, ignore_index=True)
+            df = df.sort_values(['date', 'portfolio_id', 'asset_id']).reset_index(drop=True)
+            df.rename(columns={'value_in_currency': 'value_holdings'}, inplace=True)
             
-            return final_df
+            return df[['date', 'portfolio_id', 'asset_id', 'value_holdings']]
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'value_holdings'])
 
-    def _get_value_invested(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int) -> pd.DataFrame:
+    @with_session
+    def _get_cash_flow(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
         """
-        Calculate the value invested in a specific asset for a given portfolio.
+        Calculate the value invested in a specific asset for a given portfolio over a specified date range.
         
         Args:
+            session (Session): The database session.
             portfolio_id (int): The ID of the portfolio.
             asset_id (int): The ID of the asset.
             currency_id (int): The ID of the currency to convert the value to.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A DataFrame containing the cumulative value invested over time.
         """
         actions = self.db_access.get_buy_sell_actions_by_portfolio_id_asset_id(session, portfolio_id, asset_id)
         
-        df = pd.read_sql(actions.statement, session.bind)
-        df = df.sort_values(by='date').reset_index(drop=True)
+        actions_df = pd.read_sql(actions.statement, session.bind)
+        actions_df = actions_df.sort_values(by='date').reset_index(drop=True)
 
         # calcuate value of buy/sell in currency
-        df['value'] = 0.0
+        actions_df['cash_flow'] = 0.0
 
         # Convert value invested to specified currency
-        for i, row in df.iterrows():
+        for i, row in actions_df.iterrows():
             sign = 1 if row['action_type_name'] == 'buy' else -1
             if currency_id != row['currency_id']:
                 conversion_rate = self.db_access.get_currency_conversion_on_date(session, row['currency_id'], currency_id, row['date'])
-                df.at[i, 'value'] = sign * conversion_rate * row['price'] * row['quantity']
+                actions_df.at[i, 'cash_flow'] = sign * conversion_rate * row['price'] * row['quantity']
             else:
-                df.at[i, 'value'] = sign * row['price'] * row['quantity']
+                actions_df.at[i, 'cash_flow'] = sign * row['price'] * row['quantity']
         
+        # Aggregate daily cash flow
+        actions_df = actions_df.groupby(['date', 'portfolio_id', 'asset_id'])['cash_flow'].sum().reset_index()
+        actions_df.rename(columns={'cash_flow': 'cash_flow_daily'}, inplace=True)
+
         # Create a daily date range
-        date_range = pd.date_range(start=df['date'].min(), end=datetime.now(), freq='D')
+        date_range = pd.date_range(start=max(start_date, actions_df['date'].min().date()), end=min(end_date, datetime.now().date()), freq='D')
         
         # Create a daily DataFrame
-        daily_df = pd.DataFrame(index=date_range)
-        daily_df.index.name = 'date'
+        df = pd.DataFrame(index=date_range)
+        df.index.name = 'date'
         
         # Merge the action data with the daily DataFrame
-        daily_df = daily_df.merge(df[['date', 'value']], left_index=True, right_on='date', how='left')
+        df = df.merge(actions_df[['date', 'portfolio_id', 'asset_id', 'cash_flow_daily']], left_index=True, right_on='date', how='left')
         
         # Fill forward the values (this assumes that the value remains constant until the next transaction)
-        daily_df['cumulative_value'] = daily_df['value'].fillna(0).cumsum().ffill()
+        df['cash_flow_cumulative'] = df['cash_flow_daily'].fillna(0).cumsum().ffill()
+        df['portfolio_id'] = portfolio_id
+        df['asset_id'] = asset_id
 
         # Reset the index to make 'date' a column
-        daily_df = daily_df.reset_index()[['date', 'value', 'cumulative_value']]
+        df = df.reset_index()
         
-        return daily_df
+        # TODO: include portfolio_id and asset_id in the output
+        return df[['date', 'portfolio_id', 'asset_id', 'cash_flow_daily', 'cash_flow_cumulative']]
 
-    @with_session
-    def get_value_invested_general(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
+    def get_cash_flow_general(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
         """
-        Calculate the value invested for multiple portfolios and assets.
+        Calculate the value invested for multiple portfolios and assets over a specified date range.
         
         Args:
             session (Session): The database session.
             portfolio_ids (List[int]): The IDs of the portfolios to calculate value invested for.
             asset_ids (List[int]): The IDs of the assets to calculate value invested for.
             currency_id (int): The ID of the currency to convert the value to.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A melted DataFrame containing the cumulative value invested over time for all portfolio-asset combinations.
@@ -148,128 +159,138 @@ class MetricService:
 
         for portfolio_id in portfolio_ids:
             for asset_id in asset_ids:
-                value_invested_df = self._get_value_invested(session, portfolio_id, asset_id, currency_id)
-                value_invested_df['portfolio_id'] = portfolio_id
-                value_invested_df['asset_id'] = asset_id
-                all_data.append(value_invested_df)
+                cash_flow_df = self._get_cash_flow(portfolio_id, asset_id, currency_id, start_date, end_date)
+                cash_flow_df['portfolio_id'] = portfolio_id
+                cash_flow_df['asset_id'] = asset_id
+                all_data.append(cash_flow_df)
 
         if all_data:
-            final_df = pd.concat(all_data, ignore_index=True)
-            final_df = final_df.sort_values(['date', 'portfolio_id', 'asset_id']).reset_index(drop=True)
-            final_df.rename(columns={'value':'value_invested_discrete', 'cumulative_value': 'value_invested_cumulative'}, inplace=True)
+            df = pd.concat(all_data, ignore_index=True)
+            df = df.sort_values(['date', 'portfolio_id', 'asset_id']).reset_index(drop=True)
             
-            return final_df
+            return df[['date', 'portfolio_id', 'asset_id', 'cash_flow_daily', 'cash_flow_cumulative']]
         else:
-            return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'value_invested_discrete', 'value_invested_cumulative'])
+            return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cash_flow_daily', 'cash_flow_cumulative'])
 
     @with_session
-    def get_cost_basis(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int) -> pd.DataFrame:
+    def get_cost_basis(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
+        # TODO: recognize the limitations of this implementation. No guarantee that mulitple same-day transactions will be handled in correct order
+        # test the behavior  
         """
-        Calculate the cost basis of a specific asset for a given portfolio over time.
+        Calculate the cost basis of a specific asset for a given portfolio over a specified date range.
         
         Args:
             session (Session): The database session.
             portfolio_id (int): The ID of the portfolio.
             asset_id (int): The ID of the asset.
             currency_id (int): The ID of the currency to calculate the cost basis in.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A DataFrame containing the cost basis over time.
         """
         actions = self.db_access.get_buy_sell_actions_by_portfolio_id_asset_id(session, portfolio_id, asset_id)
         
-        df = pd.read_sql(actions.statement, session.bind)
-        df = df.sort_values(by='date').reset_index(drop=True)
+        actions_df = pd.read_sql(actions.statement, session.bind)
+        actions_df = actions_df.sort_values(by='date').reset_index(drop=True)
 
-        df['quantity'] = df.apply(lambda row: row['quantity'] if row['action_type_name'] == 'buy' else -row['quantity'], axis=1)
-        df['cost'] = 0.0
-        df['cumulative_quantity'] = 0.0
-        df['cumulative_cost'] = 0.0
+        actions_df['quantity'] = actions_df.apply(lambda row: row['quantity'] if row['action_type_name'] == 'buy' else -row['quantity'], axis=1)
+        actions_df['cost'] = 0.0
+        actions_df['cumulative_quantity'] = 0.0
+        actions_df['cumulative_cost'] = 0.0
 
-        for i, row in df.iterrows():
+        for i, row in actions_df.iterrows():
             if row['action_type_name'] == 'buy':
                 if currency_id != row['currency_id']:
                     conversion_rate = self.db_access.get_currency_conversion_on_date(session, row['currency_id'], currency_id, row['date'])
-                    df.at[i, 'cost'] = conversion_rate * row['price'] * row['quantity']
+                    actions_df.at[i, 'cost'] = conversion_rate * row['price'] * row['quantity']
                 else:
-                    df.at[i, 'cost'] = row['price'] * row['quantity']
+                    actions_df.at[i, 'cost'] = row['price'] * row['quantity']
             else:  # sell action
-                if df.at[i-1, 'cumulative_quantity'] > 0:
-                    df.at[i, 'cost'] = row['quantity'] * df.at[i-1, 'cost_basis']  # sale cost = quantity * cost basis
+                # TODO: beware of multiple sales/buys in a day
+                if actions_df.at[i-1, 'cumulative_quantity'] > 0:
+                    actions_df.at[i, 'cost'] = row['quantity'] * actions_df.at[i-1, 'cost_basis']  # sale cost = quantity * cost basis
 
+            actions_df.at[i, 'cumulative_quantity'] = actions_df['quantity'][:i+1].sum()
+            actions_df.at[i, 'cumulative_cost'] = actions_df['cost'][:i+1].sum()
             
-            df.at[i, 'cumulative_quantity'] = df['quantity'][:i+1].sum()
-            df.at[i, 'cumulative_cost'] = df['cost'][:i+1].sum()
-            
-            if df.at[i, 'cumulative_quantity'] > 0:
-                df.at[i, 'cost_basis'] = df.at[i, 'cumulative_cost'] / df.at[i, 'cumulative_quantity']
+            if actions_df.at[i, 'cumulative_quantity'] > 0:
+                actions_df.at[i, 'cost_basis'] = actions_df.at[i, 'cumulative_cost'] / actions_df.at[i, 'cumulative_quantity']
             else:
-                df.at[i, 'cost_basis'] = 0  # Reset cost basis when all assets are sold
+                actions_df.at[i, 'cost_basis'] = 0  # Reset cost basis when all assets are sold
+
+        # Aggregate daily cost basis to a single value per day
+        actions_df = actions_df.groupby(['date', 'portfolio_id', 'asset_id'])['cost_basis'].mean().reset_index()
 
         # Create a daily date range
-        date_range = pd.date_range(start=df['date'].min(), end=datetime.now(), freq='D')
+        date_range = pd.date_range(start=max(start_date, actions_df['date'].min().date()), end=min(end_date, datetime.now().date()), freq='D')
         
         # Create a daily DataFrame
-        daily_df = pd.DataFrame(index=date_range)
-        daily_df.index.name = 'date'
+        df = pd.DataFrame(index=date_range)
+        df.index.name = 'date'
         
         # Merge the action data with the daily DataFrame
-        daily_df = daily_df.merge(df[['date', 'cumulative_quantity', 'cumulative_cost']], left_index=True, right_on='date', how='left')
+        df = df.merge(actions_df[['date', 'portfolio_id', 'asset_id', 'cost_basis']], left_index=True, right_on='date', how='left')
         
         # Fill forward the values
-        daily_df['cumulative_quantity'] = daily_df['cumulative_quantity'].ffill()
-        daily_df['cumulative_cost'] = daily_df['cumulative_cost'].ffill()
+        df['cost_basis'] = df['cost_basis'].ffill().astype(float)
+        df['portfolio_id'] = portfolio_id
+        df['asset_id'] = asset_id
         
         # Calculate the cost basis
-        daily_df['cost_basis'] = daily_df['cumulative_cost'] / daily_df['cumulative_quantity']
+        # df['cost_basis'] = df['cumulative_cost'] / df['cumulative_quantity']
         
         # Reset the index to make 'date' a column
-        daily_df = daily_df.reset_index()[['date', 'cumulative_quantity', 'cumulative_cost', 'cost_basis']]
+        df = df.reset_index()
         
-        return daily_df
+        return df[['date', 'portfolio_id', 'asset_id', 'cost_basis']]
 
     @with_session
-    def get_unrealized_gain_loss(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int) -> pd.DataFrame:
+    def get_unrealized_gain_loss(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
         """
-        Calculate the unrealized gain/loss for a specific asset in a given portfolio.
+        Calculate the unrealized gain/loss for a specific asset in a given portfolio over a specified date range.
 
         Args:
             session (Session): The database session.
             portfolio_id (int): The ID of the portfolio.
             asset_id (int): The ID of the asset.
             currency_id (int): The ID of the currency to calculate the gain/loss in.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A DataFrame containing the unrealized gain/loss over time.
         """
         # Get cost basis
-        cost_basis_df = self.get_cost_basis(portfolio_id, asset_id, currency_id)
+        cost_basis_df = self.get_cost_basis(session, portfolio_id, asset_id, currency_id, start_date, end_date)
 
         # Get holdings in base currency
-        holdings_df = self._get_holdings_in_base_currency(session, portfolio_id, asset_id, currency_id)
+        holdings_df = self._get_holdings_in_base_currency(session, portfolio_id, asset_id, currency_id, start_date, end_date)
 
         # Merge cost basis and holdings dataframes
-        merged_df = pd.merge(cost_basis_df, holdings_df, on='date', how='outer')
-        merged_df = merged_df.sort_values('date').ffill()
+        df = pd.merge(cost_basis_df, holdings_df, on='date', how='outer')
+        df = df.sort_values('date').ffill()
 
         # Calculate unrealized gain/loss
-        merged_df['unrealized_gain_loss'] = merged_df['value_in_currency'] - merged_df['cumulative_cost']
+        df['unrealized_gain_loss'] = df['value_in_currency'] - df['cumulative_cost']
 
         # Calculate unrealized gain/loss percentage
-        merged_df['unrealized_gain_loss_percentage'] = (merged_df['unrealized_gain_loss'] / merged_df['cumulative_cost']) * 100
+        df['unrealized_gain_loss_percentage'] = (df['unrealized_gain_loss'] / df['cumulative_cost']) * 100
 
-        return merged_df[['date', 'cumulative_quantity', 'cumulative_cost', 'cost_basis', 'value_in_currency', 'unrealized_gain_loss', 'unrealized_gain_loss_percentage']]
+        return df[['date', 'cumulative_quantity', 'cumulative_cost', 'cost_basis', 'value_in_currency', 'unrealized_gain_loss', 'unrealized_gain_loss_percentage']]
 
-    @with_session
-    def get_unrealized_gain_loss_general(self, session: Session, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
+    def get_unrealized_gain_loss_general(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
         """
-        Calculate the unrealized gain/loss for multiple portfolios and assets.
+        Calculate the unrealized gain/loss for multiple portfolios and assets over a specified date range.
 
         Args:
             session (Session): The database session.
             portfolio_ids (List[int]): The IDs of the portfolios to calculate unrealized gain/loss for.
             asset_ids (List[int]): The IDs of the assets to calculate unrealized gain/loss for.
             currency_id (int): The ID of the currency to calculate the gain/loss in.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
 
         Returns:
             pd.DataFrame: A melted DataFrame containing the unrealized gain/loss over time for all portfolio-asset combinations.
@@ -278,27 +299,41 @@ class MetricService:
 
         for portfolio_id in portfolio_ids:
             for asset_id in asset_ids:
-                unrealized_gain_loss_df = self.get_unrealized_gain_loss(portfolio_id, asset_id, currency_id)
+                unrealized_gain_loss_df = self.get_unrealized_gain_loss(portfolio_id, asset_id, currency_id, start_date, end_date)
                 unrealized_gain_loss_df['portfolio_id'] = portfolio_id
                 unrealized_gain_loss_df['asset_id'] = asset_id
                 all_data.append(unrealized_gain_loss_df)
 
         if all_data:
-            final_df = pd.concat(all_data, ignore_index=True)
-            final_df = final_df.sort_values(['date', 'portfolio_id', 'asset_id']).reset_index(drop=True)
+            df = pd.concat(all_data, ignore_index=True)
+            df = df.sort_values(['date', 'portfolio_id', 'asset_id']).reset_index(drop=True)
             
-            return final_df
+            return df[['date', 'portfolio_id', 'asset_id', 'cumulative_quantity', 'cumulative_cost', 'cost_basis', 'value_in_currency', 'unrealized_gain_loss', 'unrealized_gain_loss_percentage']]
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cumulative_quantity', 'cumulative_cost', 'cost_basis', 'value_in_currency', 'unrealized_gain_loss', 'unrealized_gain_loss_percentage'])
 
-    def get_time_weighted_return_general(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int) -> pd.DataFrame:
+    def get_time_weighted_return_general(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
+        """
+        Calculate the time-weighted return for multiple portfolios and assets over a specified date range.
+
+        Args:
+            session (Session): The database session.
+            portfolio_ids (List[int]): The IDs of the portfolios to calculate time-weighted return for.
+            asset_ids (List[int]): The IDs of the assets to calculate time-weighted return for.
+            currency_id (int): The ID of the currency to calculate the return in.
+            start_date (date): The start date of the date range to consider.
+            end_date (date): The end date of the date range to consider.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the time-weighted return over time.
+        """
 
         # Get the unrealized gain/loss data for all portfolio-asset combinations
-        holdings_value = self.get_holdings_in_base_currency_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id)
-        value_invested = self.get_value_invested_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id)
+        holdings_value = self.get_holdings_in_base_currency_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id, start_date=start_date, end_date=end_date)
+        cash_flow = self.get_cash_flow_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id, start_date=start_date, end_date=end_date)
 
         # merge
-        data = pd.merge(left=value_invested, right=holdings_value, on=['date', 'portfolio_id', 'asset_id'], how='outer')
+        data = pd.merge(left=cash_flow, right=holdings_value, on=['date', 'portfolio_id', 'asset_id'], how='outer')
 
         # aggregate on date
         data_agg = self.aggregate_on_date(df=data, columns=['value_invested_discrete', 'value_holdings'])
@@ -315,8 +350,7 @@ class MetricService:
 
         return data_agg[['date', 'daily_adjusted_return', 'time_weighted_return']]
 
-
-    def get_sharpe_ratio(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, risk_free_rate: float = 0.0, rolling_window_periods: int = 180, periods_per_year: int = 365) -> pd.DataFrame:
+    def get_sharpe_ratio(self, portfolio_ids: List[int], asset_ids: List[int], currency_id: int, risk_free_rate: float = 0.0, rolling_window_periods: int = 180, periods_per_year: int = 365, start_date: date = date(1970, 1, 1), end_date: date = datetime.now().date()) -> pd.DataFrame:
         """
         Calculate the Sharpe ratio based on the time-weighted return over a rolling window.
 
@@ -329,7 +363,7 @@ class MetricService:
         Returns:
             pd.DataFrame: A DataFrame containing the rolling Sharpe ratio.
         """
-        twr_df = self.get_time_weighted_return_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id)
+        twr_df = self.get_time_weighted_return_general(portfolio_ids=portfolio_ids, asset_ids=asset_ids, currency_id=currency_id, start_date=start_date, end_date=end_date)
 
         # Calculate excess return
         excess_return = twr_df['time_weighted_return']
@@ -349,7 +383,6 @@ class MetricService:
         })
 
         return sharpe_df[['date', 'rolling_sharpe_ratio']]
-
 
     def aggregate_on_date(self, df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
 
@@ -374,6 +407,30 @@ if __name__ == "__main__":
     # TODO: DONE ~~sharpe ratio - on what? (time-weighted return - like a piecewise return - break down return into periods of constant value invested)~~
 
     metric_service = MetricService(DatabaseAccess())
+
+
+    # test the date range
+    out = metric_service._get_holdings_in_base_currency(portfolio_id=1, asset_id=4, currency_id=1, start_date=date(2023, 1, 1), end_date=date(2023, 1, 31))
+    out = metric_service._get_holdings_in_base_currency(portfolio_id=1, asset_id=4, currency_id=1, start_date=date(2023, 1, 1), end_date=date(2024, 1, 1))
+    out = metric_service._get_holdings_in_base_currency(portfolio_id=1, asset_id=4, currency_id=1)
+
+    out = metric_service.get_holdings_in_base_currency_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1, start_date=date(2023, 1, 1), end_date=date(2023, 1, 31)).groupby('date')[['value_holdings']].sum().reset_index()
+    out = metric_service.get_holdings_in_base_currency_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1, start_date=date(2023, 1, 1), end_date=date(2024, 1, 1)).groupby('date')[['value_holdings']].sum().reset_index()
+    out = metric_service.get_holdings_in_base_currency_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1).groupby('date')[['value_holdings']].sum().reset_index()
+
+    out = metric_service._get_cash_flow(portfolio_id=1, asset_id=4, currency_id=1, start_date=date(2023, 1, 1), end_date=date(2023, 1, 31))
+    out = metric_service._get_cash_flow(portfolio_id=1, asset_id=4, currency_id=1, start_date=date(2023, 1, 1), end_date=date(2024, 1, 1))
+    out = metric_service._get_cash_flow(portfolio_id=1, asset_id=4, currency_id=1)
+
+    out = metric_service.get_cash_flow_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1, start_date=date(2023, 1, 1), end_date=date(2023, 1, 31)).groupby('date')[['cash_flow_daily', 'cash_flow_cumulative']].sum().reset_index()
+    out = metric_service.get_cash_flow_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1, start_date=date(2023, 1, 1), end_date=date(2024, 1, 1)).groupby('date')[['cash_flow_daily', 'cash_flow_cumulative']].sum().reset_index()
+    out = metric_service.get_cash_flow_general(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1).groupby('date')[['cash_flow_daily', 'cash_flow_cumulative']].sum().reset_index()
+
+    out = metric_service.get_cost_basis(portfolio_id=1, asset_id=4, currency_id=1, start_date=date(2023, 1, 1), end_date=date(2023, 1, 31))
+    out = metric_service.get_cost_basis(portfolio_id=1, asset_id=4, currency_id=1, start_date=date(2023, 1, 1), end_date=date(2024, 1, 31))
+    out = metric_service.get_cost_basis(portfolio_id=1, asset_id=4, currency_id=1)
+
+    # continue testing
 
     start_time = time.time()
     result_sr = metric_service.get_sharpe_ratio(portfolio_ids=[1,2], asset_ids=[4,5,6], currency_id=1, risk_free_rate=0.0, rolling_window_periods=90, periods_per_year=365)
