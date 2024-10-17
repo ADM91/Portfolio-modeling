@@ -5,15 +5,16 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: FastAPI",
+            "name": "FastAPI dev",
             "type": "debugpy",
             "request": "launch",
-            "module": "uvicorn",
+            "module": "fastapi",
             "args": [
-                "main:app",
-                "--reload"
+                "dev",
+                "main.py"
             ],
-            "jinja": true
+            "jinja": true,
+            "justMyCode": true
         },
         {
             "name": "Python Debugger: Current File",

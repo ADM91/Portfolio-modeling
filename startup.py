@@ -32,5 +32,18 @@ def startup():
     # portfolio_service.process_actions()
 
 
+def db_update():
+
+    db_access = DatabaseAccess()
+
+    # Update asset price data
+    yfinance_service = YFinanceService(db_access)
+    yfinance_service.update_db_with_asset_data()
+
+    # Update portfolio holding time series
+    action_service = ActionService(db_access)
+    action_service.update_holdings_time_series_to_current_day()
+
+
 if __name__ == "__main__":
     startup()
