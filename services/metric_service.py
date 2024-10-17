@@ -13,10 +13,7 @@ class MetricService:
     def __init__(self, db_access: DatabaseAccess):
         self.db_access = db_access
 
-    @with_session
-    def get_base_characteristics():
-        # portfolio_id, asset_id, asset_quantity, holding_value, asset_price, currency_price
-        return
+
 
     @with_session
     def _get_holdings_in_base_currency(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int, start_date: date=date(1970, 1, 1), end_date: date=datetime.now().date()) -> pd.DataFrame:
@@ -393,8 +390,13 @@ class MetricService:
 
         return df[['date', 'rolling_sharpe_ratio']]
 
+    @with_session
     def get_benchmark_comparison():
 
+        return
+    
+    def get_base_characteristics():
+        # portfolio_id, asset_id, asset_quantity, holding_value, asset_price, currency_price
         return
 
     def aggregate_on_date(self, df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
@@ -414,10 +416,15 @@ if __name__ == "__main__":
     # TODO: DONE ~~Aggregate portfolio-asset view on holdings_in_base_currency and value_invested~~
     # TODO: DONE ~~cost basis and unrealized gain/loss~~
     # TODO: DONE ~~time-weighted return~~
-    # TODO: time range on calculations? 
+    # TODO: DONE ~~time range on calculations? ~~
+    # TODO: DONE ~~sharpe ratio - on what? (time-weighted return - like a piecewise return - break down return into periods of constant value invested)~~
+
     # TODO: realized gain/loss, each sale 1 line - fields: realized gain/loss, implied tax
     # TODO: benchmark comparison - time-weighted return
-    # TODO: DONE ~~sharpe ratio - on what? (time-weighted return - like a piecewise return - break down return into periods of constant value invested)~~
+    # TODO: get_all_metrics
+    # TODO: get all_metrics_general
+    # TODO: get all_metrics_general_aggregate
+
 
     metric_service = MetricService(DatabaseAccess())
 
@@ -497,42 +504,3 @@ if __name__ == "__main__":
     unrealized_gain_loss_percentage_graph(result_unrealized_gain_loss, portfolio_id=1, asset_id=4, currency_id=1)
     total_unrealized_gain_loss_graph(result_total_unrealized_gain_loss)
 
-    # @with_session
-    # def get_currency_conversion_rates(self, session: Session, from_currency_id: int, to_currency_id: int, start_date, end_date) -> pd.DataFrame:
-    #     """
-    #     Get currency conversion rates for a given date range.
-
-    #     Args:
-    #         session (Session): The database session.
-    #         from_currency_id (int): The ID of the currency to convert from.
-    #         to_currency_id (int): The ID of the currency to convert to.
-    #         start_date (datetime): The start date of the conversion range.
-    #         end_date (datetime): The end date of the conversion range.
-
-    #     Returns:
-    #         pd.DataFrame: A DataFrame containing daily conversion rates.
-    #     """
-
-    #     conversion_rates = self.db_access.get_currency_conversion_time_series(session, from_currency_id, to_currency_id, start_date, end_date)
-
-    #     # Convert to DataFrame
-    #     df = pd.read_sql(conversion_rates.statement, session.bind)
-
-    #     # Ensure the date column is datetime type
-    #     df['date'] = pd.to_datetime(df['date'])
-        
-    #     # Calculate conversion rate
-    #     df['conversion_rate'] = df['from_currency_price'] / df['to_currency_price']
-
-    #     # Create a complete date range
-    #     date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-    #     full_df = pd.DataFrame(index=date_range)
-    #     full_df.index.name = 'date'
-
-    #     # Merge with the conversion rates and forward fill missing values
-    #     result_df = full_df.merge(df[['date', 'conversion_rate']], left_index=True, right_on='date', how='left')
-    #     result_df['conversion_rate'] = result_df['conversion_rate'].ffill()
-    #     result_df['conversion_rate'] = result_df['conversion_rate'].bfill()
-    #     result_df = result_df.reset_index(drop=True)
-
-    #     return result_df

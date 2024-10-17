@@ -13,6 +13,10 @@
   - `metric_service.py`: Manages metrics.
   - `portfolio_service.py`: Manages portfolios.
   - `yfinance_service.py`: Interacts with Yahoo Finance API.
+- **routers/**: 
+  - `action_router.py`
+  - `metric_router.py`
+  - `portfolio_router.py`
 
 ## Setup
 1. Install dependencies:
@@ -21,7 +25,7 @@
     ```
 2. Initialize the database:
     ```bash
-    python main.py
+    python startup.py startup
     ```
     
 ## TODO
@@ -34,8 +38,8 @@
  - ~~transform in-kind holdings to currency denominated holdings test performing in ram with pandas vs sql querying~~
  - ~~simple plotting for proof of concept~~
  - ~~want to be able to view metrics for combinations of portfolios and assets~~
- - adding core metric calcualtion functions - ~~value invested~~ cost basis, unrealized gain/loss, realized gain/loss, time-weighted return, sharpe ratio
+- ~~backend services as fastapi~~
+ - adding core metric calcualtion functions - ~~value invested~~ ~~cost basis~~, ~~unrealized gain/loss~~, ~~time-weighted return~~, ~~sharpe ratio~~, realized gain/loss, get all
  - dividends robust
- - backend services as fastapi 
  - frontend
- - action defined on precise datetime
+ - action defined on precise datetime (provide correct order for same-day actions)
