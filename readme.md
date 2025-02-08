@@ -42,6 +42,7 @@
  - adding core metric calcualtion functions - ~~value invested~~ ~~cost basis~~, ~~unrealized gain/loss~~, ~~time-weighted return~~, ~~sharpe ratio~~, realized gain/loss, get all
  - summary statistics for metrics - for each portfolio, total value, total invested, total unrealized gain/loss, ytd return, 1 year return, 30 day return, sharpe ratio
  - tax calculations, FIFO method (USA), cost basis method (Iceland)
- - dividends robust
+ - add enpoints for all data outputs
  - frontend
- - action defined on precise datetime (provide correct order for same-day actions)
+ - dividends robust
+ - action defined on precise datetime (currently data aggregates on day, we lose fidelity of inter day transactions)
