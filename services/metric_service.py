@@ -13,8 +13,6 @@ class MetricService:
     def __init__(self, db_access: DatabaseAccess):
         self.db_access = db_access
 
-
-
     @with_session
     def _get_holdings_in_base_currency(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int, start_date: date=date(1970, 1, 1), end_date: date=datetime.now().date()) -> pd.DataFrame:
         """
@@ -131,7 +129,8 @@ class MetricService:
         df = df.merge(actions_df[['date', 'portfolio_id', 'asset_id', 'cash_flow_daily']], left_index=True, right_on='date', how='left')
         
         # Fill forward the values (this assumes that the value remains constant until the next transaction)
-        df['cash_flow_cumulative'] = df['cash_flow_daily'].fillna(0).cumsum().ffill()
+        df['cash_flow_daily'] = df['cash_flow_daily'].fillna(0) # Fill NaN with 0 for cash_flow_daily
+        df['cash_flow_cumulative'] = df['cash_flow_daily'].cumsum().ffill().fillna(0)
         df['portfolio_id'] = portfolio_id
         df['asset_id'] = asset_id
 

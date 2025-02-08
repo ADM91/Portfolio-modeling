@@ -40,6 +40,8 @@
  - ~~want to be able to view metrics for combinations of portfolios and assets~~
 - ~~backend services as fastapi~~
  - adding core metric calcualtion functions - ~~value invested~~ ~~cost basis~~, ~~unrealized gain/loss~~, ~~time-weighted return~~, ~~sharpe ratio~~, realized gain/loss, get all
+ - summary statistics for metrics - for each portfolio, total value, total invested, total unrealized gain/loss, ytd return, 1 year return, 30 day return, sharpe ratio
+ - tax calculations, FIFO method (USA), cost basis method (Iceland)
  - dividends robust
  - frontend
  - action defined on precise datetime (provide correct order for same-day actions)

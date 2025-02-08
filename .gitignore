@@ -1,5 +1,6 @@
 
 _junk/*
+_data/
 data/*
 *.venv
 *.ipynb
