@@ -1,4 +1,3 @@
-
 import os
 import logging
 from contextlib import contextmanager
@@ -12,9 +11,10 @@ from functools import wraps
 import pandas as pd
 
 from database.entities import *
+from config import settings
 
-
-engine = create_engine(os.environ.get('DATABASE_URL'))
+# Use settings from config instead of environment variable directly
+engine = create_engine(settings.database_url)
 SessionFactory = sessionmaker(bind=engine)
 
 @contextmanager
@@ -23,6 +23,7 @@ def session_scope():
     session = SessionFactory()
     try:
         yield session
+        
         session.commit()
     except:
         session.rollback()
@@ -48,10 +49,9 @@ class DatabaseAccess:
 
     def __init__(self, engine: Optional[Engine] = None):
         if engine is None:
-            self.engine = create_engine(os.environ.get('DATABASE_URL'))
+            self.engine = create_engine(settings.database_url)
         else:
             self.engine = engine
-
 
     def init_db(self) -> None:
         """Initialize the database by creating all tables."""
@@ -770,4 +770,5 @@ if __name__ == "__main__":
     with session_scope() as session:
         portfolio = db_access.get_portfolio_by_name(session, 'Alexander')
 
+    print('done')
     print('done')

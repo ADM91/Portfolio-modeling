@@ -1,25 +1,41 @@
+import os
+from typing import List, Dict, Any
+from pydantic import BaseSettings
 
 
+class Settings(BaseSettings):
+    """Application settings with environment variable support."""
 
-# # Configuration for assets and metrics
-# ACCOUNTS = ['Alexander', 'AM ehf.']
-# ASSETS = ["BTC", "ETH", "MATIC", "ADA", "DOT", "LINK", "SOL", "ISK", "EUR"]
-# DENOMINATIONS = ["In-kind", "USD", "ISK", "BTC"]
-# METRICS = ["Balance", "Cost Basis", "ROI"]
+    # Database configuration
+    database_url: str = "sqlite:///./portfolio.db"
 
-# # Map tickers to assets
-# TICKER_ASSET_MAP = {"BTC-USD":"BTC", "ETH-USD":"ETH", "MATIC-USD":"MATIC", "ADA-USD":"ADA", "DOT-USD":"DOT", "LINK-USD":"LINK", "SOL-USD":"SOL", "ISK=X":"ISK", "EUR=X":"EUR"}
+    # API configuration
+    api_key_yfinance: str = ""
+    debug: bool = False
 
-# Activity file path
+    # Server configuration
+    host: str = "0.0.0.0"
+    port: int = 8000
 
-# Data to insert
-action_types = [
+    # Logging configuration
+    log_level: str = "INFO"
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+# Global settings instance
+settings = Settings()
+
+# Data configuration - moved from hardcoded lists to structured format
+action_types: List[Dict[str, str]] = [
     {"name": "buy"},
     {"name": "sell"},
     {"name": "dividend"}
 ]
 
-assets = [
+assets: List[Dict[str, Any]] = [
     {"ticker": "", "code": "USD", "name": "US dollar", "is_currency": True, "is_inverted": False},  # special case, value = 1
     {"ticker": "ISK=X", "code": "ISK", "name": "Icelandic krona", "is_currency": True, "is_inverted": True},
     {"ticker": "EUR=X", "code": "EUR", "name": "Euro", "is_currency": True, "is_inverted": True},
@@ -29,8 +45,7 @@ assets = [
     {"ticker": "SPY", "code": "SPY", "name": "SP-500", "is_currency": False, "is_inverted": False},
 ]
 
-
-portfolios = [
+portfolios: List[Dict[str, str]] = [
     {"name": "Alexander", "owner": "Alexander"},
     {"name": "AM ehf.", "owner": "AM ehf."},
     {"name": "Pauline", "owner": "Pauline"},

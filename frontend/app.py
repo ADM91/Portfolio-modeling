@@ -1,11 +1,19 @@
 
 import streamlit as st
 from services.portfolio_service import PortfolioHandler
+from config import settings
 
 def main():
     st.title("Multi-Currency Asset Tracker")
     
-    portfolio_handler = PortfolioHandler("path_to_your_excel_file.xlsx")
+    # Use a default path or get from environment
+    excel_path = st.sidebar.text_input(
+        "Excel File Path", 
+        value="data/portfolio.xlsx",
+        help="Path to your portfolio Excel file"
+    )
+    
+    portfolio_handler = PortfolioHandler(excel_path)
     
     menu = ["Dashboard", "Add Activity", "Portfolio Analysis", "Data Visualization"]
     choice = st.sidebar.selectbox("Menu", menu)
