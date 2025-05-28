@@ -34,5 +34,27 @@ A comprehensive multi-currency portfolio tracking and analytics system built wit
 ### 1. Install Dependencies
 ```bash
     pip install -r requirements.txt
-```
-
+    ```
+2. Initialize the database:
+    ```bash
+    python startup.py startup
+    ```
+    
+## TODO
+ - ~~read and insert actions needs to be able to interpret USD as currency~~
+ - ~~action service to read excel data, clean/interpret, insert/update database~~
+ - ~~portfolio service updates portfolio and portfolioholdings tables~~
+ - ~~change DatabaseAccess methods to return session queries, not detached data objects.  Like done "in get_portfolio_asset_actions()". Session lifecycle moves to business logic layer.~~
+ - ~~working on update_holding_time_series() in DatabaseAccess~~
+ - ~~time series for holdings in kind - separate table or dataframe in ram. - separate table~~
+ - ~~transform in-kind holdings to currency denominated holdings test performing in ram with pandas vs sql querying~~
+ - ~~simple plotting for proof of concept~~
+ - ~~want to be able to view metrics for combinations of portfolios and assets~~
+- ~~backend services as fastapi~~
+ - adding core metric calcualtion functions - ~~value invested~~ ~~cost basis~~, ~~unrealized gain/loss~~, ~~time-weighted return~~, ~~sharpe ratio~~, realized gain/loss, get all
+ - summary statistics for metrics - for each portfolio, total value, total invested, total unrealized gain/loss, ytd return, 1 year return, 30 day return, sharpe ratio
+ - tax calculations, FIFO method (USA), cost basis method (Iceland)
+ - add enpoints for all data outputs
+ - frontend
+ - dividends robust
+ - action defined on precise datetime (currently data aggregates on day, we lose fidelity of inter day transactions)
