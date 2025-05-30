@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import pandas as pd
 from sqlalchemy.orm import Session
+import time
+import random
 
 from database.access import with_session, DatabaseAccess
 
@@ -77,6 +79,9 @@ class YFinanceService:
         asset_list = self.db_access.get_all_assets(session)
         
         for asset in asset_list:
+            # Add a small delay between requests
+            time.sleep(random.uniform(0.2, 0.8))
+
             # Get the most recent date in the database for this asset
             last_date = self.db_access.get_last_price_date(session, asset.ticker)
             

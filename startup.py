@@ -34,9 +34,8 @@ def update_data():
 
     # ActionService get action data
     action_service = ActionService(db_access)
-    # Use environment variable or default path for actions
-    actions_path = os.environ.get("PATH_ACTIONS", "data/actions.xlsx")
-    
+    # Use settings or environment variable for actions path
+    actions_path = settings.path_actions
     if os.path.exists(actions_path):
         print(f"📋 Processing actions from {actions_path}...")
         actions = action_service.read_actions_from_excel(actions_path)
@@ -133,12 +132,6 @@ def main():
         sys.exit(1)
 
 
-# Legacy function for backward compatibility
-def startup():
-    """Legacy startup function - use 'full' command instead."""
-    init_database()
-    update_data()
-
-
 if __name__ == "__main__":
     main()
+
