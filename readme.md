@@ -58,3 +58,5 @@ python startup.py startup
  - frontend
  - dividends robust
  - action defined on precise datetime (currently data aggregates on day, we lose fidelity of inter day transactions)
+
+test
