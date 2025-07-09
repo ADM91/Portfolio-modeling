@@ -31,14 +31,14 @@ A comprehensive multi-currency portfolio tracking and analytics system built wit
 - **utils/**: Utility functions
 
 ## Quick Start
-### 1. Install Dependencies
+#### 1. Install Dependencies
 ```bash
-    pip install -r requirements.txt
-    ```
-2. Initialize the database:
-    ```bash
-    python startup.py startup
-    ```
+pip install -r requirements.txt
+```
+#### 2. Initialize the database:
+```bash
+python startup.py startup
+```
     
 ## TODO
  - ~~read and insert actions needs to be able to interpret USD as currency~~

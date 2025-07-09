@@ -2,7 +2,7 @@ import os
 import sys
 import argparse
 import uvicorn
-from database.access import DatabaseAccess
+from database.access_improved import DatabaseAccess
 from database.init_db import initialize_database
 from services.yfinance_service import YFinanceService
 from services.action_service import ActionService

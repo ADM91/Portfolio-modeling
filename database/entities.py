@@ -123,3 +123,4 @@ class Portfolio(Base):
 #     portfolio: Mapped[Portfolio] = relationship("Portfolio", back_populates="metrics")
 #     holding: Mapped[Optional[PortfolioHolding]] = relationship("PortfolioHolding", back_populates="metrics")
 #     currency: Mapped[Asset] = relationship("Asset", back_populates="metrics")
+
