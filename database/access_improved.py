@@ -8,10 +8,14 @@ from sqlalchemy.orm import sessionmaker, joinedload, Session
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta, date
 from functools import wraps
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+import decimal
 import pandas as pd
 
-from database.entities_improved import *
+from database.entities_improved import (
+    Base, Asset, Portfolio, Transaction, TransctionType, PriceHistory, 
+    PortfolioHoldingsTimeSeries, TaxLot, TaxLotTransaction
+)
 from config import settings
 
 # Use settings from config instead of environment variable directly
@@ -96,8 +100,10 @@ class DatabaseAccess:
                 if isinstance(value, (int, float, str)):
                     try:
                         converted[field] = Decimal(str(value))
-                    except (ValueError, TypeError):
+                    except (ValueError, TypeError, decimal.InvalidOperation):
                         logging.warning(f"Could not convert {field}={value} to Decimal")
+                        # Keep the original value if conversion fails
+                        converted[field] = value
         
         return converted
 
@@ -125,6 +131,9 @@ class DatabaseAccess:
                     setattr(existing_asset, key, value)
             return existing_asset
         else:
+            # Set code to ticker if not provided
+            if 'code' not in kwargs:
+                kwargs['code'] = ticker
             new_asset = Asset(ticker=ticker, name=name, **kwargs)
             session.add(new_asset)
             session.flush()
@@ -210,19 +219,7 @@ class DatabaseAccess:
         if from_currency_id == to_currency_id:
             return 1.0
 
-        # Check cache first if using CurrencyConversionCache
-        try:
-            cached_rate = session.query(CurrencyConversionCache).filter(
-                CurrencyConversionCache.from_currency_id == from_currency_id,
-                CurrencyConversionCache.to_currency_id == to_currency_id,
-                CurrencyConversionCache.date == date.date()
-            ).first()
-            
-            if cached_rate:
-                return float(cached_rate.exchange_rate)
-        except Exception:
-            # Cache table might not exist yet
-            pass
+        # TODO: Implement currency conversion cache if needed
 
         # Calculate from price history
         from_currency_price = session.query(PriceHistory.date, PriceHistory.close.label('from_currency_price'))\
@@ -247,19 +244,7 @@ class DatabaseAccess:
         if exchange_rate and exchange_rate.exchange_rate:
             rate = float(exchange_rate.exchange_rate)
             
-            # Cache the result for future use
-            try:
-                cache_entry = CurrencyConversionCache(
-                    from_currency_id=from_currency_id,
-                    to_currency_id=to_currency_id,
-                    date=date.date(),
-                    exchange_rate=Decimal(str(rate)),
-                    created_at=datetime.now()
-                )
-                session.add(cache_entry)
-                session.flush()
-            except Exception as e:
-                logging.warning(f"Could not cache currency conversion: {e}")
+            # TODO: Cache the result for future use if needed
             
             return rate
         else:
@@ -304,19 +289,19 @@ class DatabaseAccess:
             return last_price.date if last_price else None
         return None
 
-    def get_action_type_by_name(self, session: Session, name: str) -> Optional[ActionType]:
+    def get_action_type_by_name(self, session: Session, name: str) -> Optional[TransctionType]:
         """Get an action type by its name."""
-        return session.query(ActionType).filter(ActionType.name == name).first()
+        return session.query(TransctionType).filter(TransctionType.name == name).first()
 
     def get_buy_sell_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int):
         """Get buy/sell actions for a portfolio and asset."""
         actions = (
-            session.query(Action, ActionType.name.label('action_type_name'))
-            .join(ActionType, Action.action_type_id == ActionType.id)
+            session.query(Transaction, TransctionType.name.label('action_type_name'))
+            .join(TransctionType, Transaction.action_type_id == TransctionType.id)
             .filter(
-                Action.portfolio_id == portfolio_id,
-                Action.asset_id == asset_id,
-                Action.action_type_id.in_([1, 2])  # 1 for buy, 2 for sell
+                Transaction.portfolio_id == portfolio_id,
+                Transaction.asset_id == asset_id,
+                Transaction.action_type_id.in_([1, 2])  # 1 for buy, 2 for sell
             )
         )
         
@@ -330,13 +315,13 @@ class DatabaseAccess:
         """Get a portfolio by its name."""
         return session.query(Portfolio).filter(Portfolio.name == name).first()
 
-    def get_unprocessed_actions(self, session: Session) -> List[Action]:
+    def get_unprocessed_actions(self, session: Session) -> List[Transaction]:
         """Get all unprocessed actions."""
-        return session.query(Action).filter(Action.is_processed == False).order_by(Action.date).all()
+        return session.query(Transaction).filter(Transaction.is_processed == False).order_by(Transaction.transaction_datetime).all()
 
-    def update_action(self, session: Session, action: Action) -> None:
+    def update_action(self, session: Session, action: Transaction) -> None:
         """Update an action to mark it as processed."""
-        session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
+        session.query(Transaction).filter(Transaction.id == action.id).update({'is_processed': True})
 
     def get_last_holdings_time_series_update(self, session: Session) -> Optional[datetime]:
         """Get the date of the last update to the holdings time series."""
@@ -349,7 +334,7 @@ class DatabaseAccess:
 
     def get_earliest_action_date(self, session: Session) -> datetime:
         """Get the date of the earliest action."""
-        earliest_date = session.query(func.min(Action.date)).scalar()
+        earliest_date = session.query(func.min(Transaction.transaction_datetime)).scalar()
         return earliest_date.date() if earliest_date else datetime.now().date()
 
     def get_portfolios(self, session: Session) -> List[Portfolio]:
@@ -358,16 +343,16 @@ class DatabaseAccess:
 
     def get_portfolio_assets(self, session: Session, portfolio_id: int) -> List[Asset]:
         """Get all unique assets associated with a specific portfolio."""
-        return session.query(Asset).join(Action).filter(Action.portfolio_id == portfolio_id).distinct().all()
+        return session.query(Asset).join(Transaction, Asset.id == Transaction.asset_id).filter(Transaction.portfolio_id == portfolio_id).distinct().all()
 
-    def get_portfolio_asset_actions(self, session: Session, portfolio_id: int, asset_id: int) -> List[Action]:
+    def get_portfolio_asset_actions(self, session: Session, portfolio_id: int, asset_id: int) -> List[Transaction]:
         """Get all actions for a specific asset in a specific portfolio."""
-        return session.query(Action).options(
-            joinedload(Action.action_type)
+        return session.query(Transaction).options(
+            joinedload(Transaction.transaction_type)
         ).filter(
-            Action.portfolio_id == portfolio_id,
-            Action.asset_id == asset_id
-        ).order_by(Action.date).all()
+            Transaction.portfolio_id == portfolio_id,
+            Transaction.asset_id == asset_id
+        ).order_by(Transaction.transaction_datetime).all()
 
     def store_holdings_time_series(self, session: Session, holdings_data: List[Dict]) -> None:
         """Store or update portfolio holdings time series data."""
@@ -443,26 +428,26 @@ class DatabaseAccess:
             PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
         ).order_by(PortfolioHoldingsTimeSeries.date).all()
 
-    def update_holding_time_series(self, session: Session, action: Action, end_date: datetime) -> None:
+    def update_holding_time_series(self, session: Session, action: Transaction, end_date: datetime) -> None:
         """Forward fill the holding time series for a specific action up to the end date."""
         # Get the latest holding entry for this action
         latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
             PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
             PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
-            PortfolioHoldingsTimeSeries.date <= action.date
+            PortfolioHoldingsTimeSeries.date <= action.transaction_datetime
         ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
 
         # If no previous holding exists, use the action's quantity
         if latest_holding:
             quantity = latest_holding.quantity 
         else:
-            if action.action_type.name in ('buy', 'dividend'):
+            if action.transaction_type.name in ('buy', 'dividend'):
                 quantity = action.quantity
-            elif action.action_type.name == 'sell':
+            elif action.transaction_type.name == 'sell':
                 quantity = -action.quantity
 
         # Generate date range from the day after the action to the end date
-        start_date = (action.date + timedelta(days=1)).date()
+        start_date = (action.transaction_datetime + timedelta(days=1)).date()
         while start_date <= end_date:
             # Check if an entry already exists for this date
             existing_entry = session.query(PortfolioHoldingsTimeSeries).filter(
@@ -486,7 +471,7 @@ class DatabaseAccess:
 
             start_date += timedelta(days=1)
 
-    def insert_holding_time_series_ffill(self, session: Session, action: Action, end_date: datetime) -> None:
+    def insert_holding_time_series_ffill(self, session: Session, action: Transaction, end_date: datetime) -> None:
         """Update the portfolio holdings time series using forward fill (ffill) method."""
         # Get the latest holding entry for this action
         latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
@@ -517,17 +502,17 @@ class DatabaseAccess:
                     session.execute(stmt)
                 except Exception as e:
                     logging.error(f"Error ffill holdings time series: {str(e)}")
-                    logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+                    logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.transaction_datetime}")
                     raise e
 
-    def update_holding_time_series_vectorized(self, session: Session, action: Action, end_date: datetime) -> None:
+    def update_holding_time_series_vectorized(self, session: Session, action: Transaction, end_date: datetime) -> None:
         """Update the portfolio holdings time series using a vectorized approach."""
-        if action.action_type.name in ('buy', 'dividend'):
+        if action.transaction_type.name in ('buy', 'dividend'):
             quantity_change = action.quantity
-        elif action.action_type.name == 'sell':
+        elif action.transaction_type.name == 'sell':
             quantity_change = -action.quantity
 
-        start_date = action.date.date()
+        start_date = action.transaction_datetime.date()
 
         try:
             # First, update existing records
@@ -568,7 +553,7 @@ class DatabaseAccess:
         except Exception as e:
             session.rollback()
             logging.error(f"Error updating/inserting holdings time series: {str(e)}")
-            logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+            logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.transaction_datetime}")
             raise e
 
     def update_holdings_time_series_to_current_day(self, session: Session) -> None:

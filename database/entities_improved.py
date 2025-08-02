@@ -14,19 +14,19 @@ class ActionTypeEnum(Enum):
     sell = 2
     dividend = 3
 
-class ActionType(Base):
+class TransctionType(Base):
     # reference table
-    __tablename__ = 'action_types'
+    __tablename__ = 'transaction_types'
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(50))
 
-class Action(Base):
+class Transaction(Base):
     # investment action, buy, sell, dividend (currency agnostic)
-    __tablename__ = 'actions'
+    __tablename__ = 'transactions'
     id: Mapped[int] = mapped_column(primary_key=True)
     portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
-    action_type_id: Mapped[int] = mapped_column(ForeignKey('action_types.id'))
-    date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    action_type_id: Mapped[int] = mapped_column(ForeignKey('transaction_types.id'))
+    transaction_datetime: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
     currency_id: Mapped[int] = mapped_column(ForeignKey('assets.id')) # how do we handle dividend payments? currency = asset
     
@@ -35,12 +35,13 @@ class Action(Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     fee: Mapped[Decimal] = mapped_column(Numeric(20, 8), default=0)
     
+    # Metadata
     platform: Mapped[Optional[str]] = mapped_column(String(100))
     comment: Mapped[Optional[str]] = mapped_column(String(500))
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False) 
     
     # Relationships
-    action_type: Mapped[ActionType] = relationship("ActionType")
+    transaction_type: Mapped[TransctionType] = relationship("TransctionType")
     asset: Mapped["Asset"] = relationship("Asset", foreign_keys=[asset_id])
     currency: Mapped["Asset"] = relationship("Asset", foreign_keys=[currency_id])
     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="actions")
@@ -48,9 +49,9 @@ class Action(Base):
     
     # Indexes for performance
     __table_args__ = (
-        Index('idx_action_portfolio_date', 'portfolio_id', 'date'),
-        Index('idx_action_asset_date', 'asset_id', 'date'), 
-        Index('idx_action_processed', 'is_processed'),
+        Index('idx_transaction_portfolio_date', 'portfolio_id', 'transaction_datetime'),
+        Index('idx_transaction_asset_date', 'asset_id', 'transaction_datetime'), 
+        Index('idx_transaction_processed', 'is_processed'),
     )
 
 class PriceHistory(Base):
@@ -86,10 +87,10 @@ class Asset(Base):
     
     # Relationships
     price_history: Mapped[list["PriceHistory"]] = relationship("PriceHistory", back_populates="asset", foreign_keys=[PriceHistory.asset_id])
-    actions: Mapped[list["Action"]] = relationship("Action", back_populates="asset", foreign_keys=[Action.asset_id])
-    currency_actions: Mapped[list["Action"]] = relationship("Action", back_populates="currency", foreign_keys=[Action.currency_id])
+    actions: Mapped[list["Transaction"]] = relationship("Transaction", back_populates="asset", foreign_keys=[Transaction.asset_id])
+    currency_actions: Mapped[list["Transaction"]] = relationship("Transaction", back_populates="currency", foreign_keys=[Transaction.currency_id])
     holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="asset")
-    tax_lots: Mapped[list["TaxLot"]] = relationship("TaxLot", back_populates="asset")
+    tax_lots: Mapped[list["TaxLot"]] = relationship("TaxLot", back_populates="asset", foreign_keys="TaxLot.asset_id")
     
     __table_args__ = (
         Index('idx_asset_ticker', 'ticker'),
@@ -119,11 +120,11 @@ class Portfolio(Base):
     name: Mapped[str] = mapped_column(String(100))
     owner: Mapped[str] = mapped_column(String(100))
     
-    actions: Mapped[list["Action"]] = relationship("Action", back_populates="portfolio", foreign_keys=[Action.portfolio_id])
+    actions: Mapped[list["Transaction"]] = relationship("Transaction", back_populates="portfolio", foreign_keys=[Transaction.portfolio_id])
     holdings_time_series: Mapped[list["PortfolioHoldingsTimeSeries"]] = relationship("PortfolioHoldingsTimeSeries", back_populates="portfolio")
     tax_lots: Mapped[list["TaxLot"]] = relationship("TaxLot", back_populates="portfolio")
 
-# ========== Tax Lot Tables (New) ==========
+# ========== Tax Lot Tables ==========
 
 class TaxLot(Base):
     """Tax lot tracking for cost basis calculations - essential for tax reporting"""
@@ -142,6 +143,14 @@ class TaxLot(Base):
     remaining_quantity: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     cost_basis_per_unit: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     
+    # For US tax reporting
+    holding_period_type: Mapped[Optional[str]] = mapped_column(String(10))  # 'short' or 'long'
+    acquisition_method: Mapped[str] = mapped_column(String(20), default='purchase')  # 'purchase', 'dividend_reinvest', etc.
+
+    # For wash sale tracking
+    is_wash_sale_affected: Mapped[bool] = mapped_column(Boolean, default=False)
+    wash_sale_loss_deferred: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 8))
+
     # Currency for cost basis
     currency_id: Mapped[int] = mapped_column(ForeignKey('assets.id'), nullable=False)
     
@@ -150,7 +159,7 @@ class TaxLot(Base):
     
     # Relationships
     portfolio: Mapped["Portfolio"] = relationship("Portfolio", back_populates="tax_lots")
-    asset: Mapped["Asset"] = relationship("Asset", back_populates="tax_lots")
+    asset: Mapped["Asset"] = relationship("Asset", back_populates="tax_lots", foreign_keys=[asset_id])
     currency: Mapped["Asset"] = relationship("Asset", foreign_keys=[currency_id])
     transactions: Mapped[list["TaxLotTransaction"]] = relationship("TaxLotTransaction", back_populates="tax_lot")
     
@@ -168,7 +177,7 @@ class TaxLotTransaction(Base):
     __tablename__ = 'tax_lot_transactions'
     
     id: Mapped[int] = mapped_column(primary_key=True)
-    action_id: Mapped[int] = mapped_column(ForeignKey('actions.id'), nullable=False)
+    action_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'), nullable=False)
     tax_lot_id: Mapped[int] = mapped_column(ForeignKey('tax_lots.id'), nullable=False)
     
     # Transaction details
@@ -182,10 +191,41 @@ class TaxLotTransaction(Base):
     processed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     
     # Relationships
-    action: Mapped["Action"] = relationship("Action", back_populates="tax_lot_transactions")
+    action: Mapped["Transaction"] = relationship("Transaction", back_populates="tax_lot_transactions")
     tax_lot: Mapped["TaxLot"] = relationship("TaxLot", back_populates="transactions")
     
     __table_args__ = (
         Index('idx_tax_lot_transaction_action', 'action_id'),
         Index('idx_tax_lot_transaction_lot', 'tax_lot_id'),
     )
+
+
+class WashSaleEvent(Base):
+    __tablename__ = 'wash_sale_events'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey('portfolios.id'))
+    asset_id: Mapped[int] = mapped_column(ForeignKey('assets.id'))
+    
+    sale_action_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'))
+    purchase_action_id: Mapped[int] = mapped_column(ForeignKey('transactions.id'))
+    
+    disallowed_loss: Mapped[Decimal] = mapped_column(Numeric(20, 8))
+    wash_sale_period_start: Mapped[datetime] = mapped_column(DateTime)
+    wash_sale_period_end: Mapped[datetime] = mapped_column(DateTime)
+
+# ========== Log Tables ==========
+
+class AuditLog(Base):
+    __tablename__ = 'audit_log'
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    table_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    record_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    operation: Mapped[str] = mapped_column(String(10), nullable=False)  # 'INSERT', 'UPDATE', 'DELETE'
+    
+    old_values: Mapped[Optional[str]] = mapped_column(String(2000))  # JSON
+    new_values: Mapped[Optional[str]] = mapped_column(String(2000))  # JSON
+    
+    changed_by: Mapped[str] = mapped_column(String(100), default='system')
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
