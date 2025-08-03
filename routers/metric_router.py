@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
 
-from startup import db_update
+from cli import db_update
 from services.metric_service import MetricService
 from database.access import DatabaseAccess
 from utils.date_utils import calculate_start_date
