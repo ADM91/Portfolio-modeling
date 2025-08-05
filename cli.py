@@ -4,7 +4,7 @@ import argparse
 import uvicorn
 from database.access_improved import DatabaseAccess
 from database.init_db import initialize_database
-from services.yfinance_service import YFinanceService
+from services.data_acquisition_service import DataAcquisitionService
 from services.action_service import ActionService
 from services.metric_service import MetricService
 from services.portfolio_service import PortfolioService
@@ -29,7 +29,7 @@ def update_data():
     db_access = DatabaseAccess()
     
     # YFinanceService get asset time series data
-    yfinance_service = YFinanceService(db_access)
+    yfinance_service = DataAcquisitionService(db_access)
     yfinance_service.update_db_with_asset_data()
 
     # ActionService get action data
@@ -55,7 +55,7 @@ def db_update():
     db_access = DatabaseAccess()
 
     # Update asset price data
-    yfinance_service = YFinanceService(db_access)
+    yfinance_service = DataAcquisitionService(db_access)
     yfinance_service.update_db_with_asset_data()
 
     # Update portfolio holding time series
