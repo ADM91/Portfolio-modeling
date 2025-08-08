@@ -9,3 +9,5 @@ pydantic==2.9.2
 redis==6.2.1
 python-dotenv==1.0.0
 uvicorn==0.24.0
+plotly==5.17.0
+requests==2.31.0

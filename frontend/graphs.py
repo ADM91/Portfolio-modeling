@@ -314,7 +314,6 @@ def unrealized_gain_loss_percentage_graph(unrealized_gain_loss_df: pd.DataFrame,
     plt.savefig('frontend/graphs/unrealized_gain_loss_percentage_graph.png')
 
 
-
 def total_unrealized_gain_loss_graph(unrealized_gain_loss_df):
     # Aggregate data by date
     df_agg = unrealized_gain_loss_df.groupby('date').agg({

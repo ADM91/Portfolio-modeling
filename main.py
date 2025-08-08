@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from cli import db_update
-from routers import metric_router
+from routers import metric_router, data_router
 from config import settings
 
 
@@ -40,3 +40,4 @@ app = FastAPI(
 
 # Attach routers with prefix "api"
 app.include_router(metric_router.router, prefix="/api/v1")
+app.include_router(data_router.router, prefix="/api/v1")

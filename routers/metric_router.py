@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from cli import db_update
-from services.metric_service import MetricService
+from services.metric_service_improved import MetricService
 from database.access import DatabaseAccess
 from utils.date_utils import calculate_start_date
 
@@ -118,6 +118,32 @@ async def get_value_invested(
             raise HTTPException(status_code=400, detail="Either timeframe or start_date and end_date must be provided")
 
         result = metric_service.get_cash_flow_general(portfolio_ids, asset_ids, currency_id, start, end).round(1)
+        return result.to_dict(orient="records")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/holdings-value")
+async def get_holdings_value(
+    currency_id: int,
+    portfolio_ids: List[int] = Query(),
+    asset_ids: List[int] = Query(),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    timeframe: Optional[str] = Query(default="30d", enum=["30d", "90d", "ytd", "1y", "max"]),
+):
+    try:
+        db_update()  # TODO: do this more efficiently, check if db is up to date before running
+        end = datetime.now().date()
+        if timeframe:
+            start = calculate_start_date(timeframe, end)
+        elif start_date and end_date:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        else:
+            raise HTTPException(status_code=400, detail="Either timeframe or start_date and end_date must be provided")
+
+        result = metric_service.get_holdings_in_currency_general(portfolio_ids, asset_ids, currency_id, start, end).round(1)
         return result.to_dict(orient="records")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

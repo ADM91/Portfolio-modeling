@@ -1,3 +1,4 @@
+
 import os
 import sys
 import argparse
@@ -5,7 +6,7 @@ import uvicorn
 from database.access_improved import DatabaseAccess
 from database.init_db import initialize_database
 from services.data_acquisition_service import DataAcquisitionService
-from services.action_service import ActionService
+from services.transaction_processing_service import TransactionProcessingService
 from services.metric_service import MetricService
 from services.portfolio_service import PortfolioService
 from config import settings
@@ -32,20 +33,35 @@ def update_data():
     yfinance_service = DataAcquisitionService(db_access)
     yfinance_service.update_db_with_asset_data()
 
-    # ActionService get action data
-    action_service = ActionService(db_access)
+    # TransactionProcessingService get action data
+    transaction_service = TransactionProcessingService(db_access)
     # Use settings or environment variable for actions path
     actions_path = settings.path_actions
     if os.path.exists(actions_path):
         print(f"📋 Processing actions from {actions_path}...")
-        actions = action_service.read_actions_from_excel(actions_path)
-        action_service.insert_actions(actions)  # TODO: this reinserts existing actions
-        action_service.process_actions()
-        action_service.update_holdings_time_series_to_current_day()
+        imported_count, import_errors = transaction_service.import_actions_from_excel(actions_path)
+        print(f"✅ Imported {imported_count} actions from Excel")
+        if import_errors:
+            print(f"⚠️  Import warnings/errors: {len(import_errors)} issues found")
+            for error in import_errors[:5]:  # Show first 5 errors
+                print(f"   - {error}")
+            if len(import_errors) > 5:
+                print(f"   ... and {len(import_errors) - 5} more")
+        
+        processed_count, processing_errors = transaction_service.process_unprocessed_actions()
+        print(f"✅ Processed {processed_count} actions")
+        if processing_errors:
+            print(f"⚠️  Processing warnings/errors: {len(processing_errors)} issues found")
+            for error in processing_errors[:5]:  # Show first 5 errors
+                print(f"   - {error}")
+            if len(processing_errors) > 5:
+                print(f"   ... and {len(processing_errors) - 5} more")
+        
+        transaction_service.update_holdings_time_series_to_current_day()
     else:
         print(f"⚠️  Actions file not found at {actions_path}, skipping...")
         # Still update holdings time series for existing data
-        action_service.update_holdings_time_series_to_current_day()
+        transaction_service.update_holdings_time_series_to_current_day()
 
     print("✅ Data update completed")
 
@@ -59,13 +75,13 @@ def db_update():
     yfinance_service.update_db_with_asset_data()
 
     # Update portfolio holding time series
-    action_service = ActionService(db_access)
-    action_service.update_holdings_time_series_to_current_day()
+    transaction_service = TransactionProcessingService(db_access)
+    transaction_service.update_holdings_time_series_to_current_day()
 
 
 def run_server():
     """Start the FastAPI server."""
-    print(f"🚀 Starting server on {settings.host}:{settings.port}")
+    print(f"� Starting server on {settings.host}:{settings.port}")
     print(f"🐛 Debug mode: {settings.debug}")
     print(f"📊 API docs will be available at: http://{settings.host}:{settings.port}/docs")
     
@@ -134,4 +150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

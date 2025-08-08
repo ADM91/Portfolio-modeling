@@ -135,7 +135,7 @@ class MetricService:
         This is your existing algorithm with caching added
         """
         # Get cached holdings data
-        holdings_df = self._get_holdings_data_with_cache(session, portfolio_id, asset_id)
+        holdings_df = self._get_holdings_data_with_cache(portfolio_id, asset_id)
         
         if holdings_df.empty:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'holding_value'])
@@ -150,8 +150,8 @@ class MetricService:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'holding_value'])
 
         # Get cached price data
-        asset_prices = self._get_price_data_with_cache(session, asset_id, start_date, end_date)
-        currency_prices = self._get_price_data_with_cache(session, currency_id, start_date, end_date)
+        asset_prices = self._get_price_data_with_cache(asset_id, start_date, end_date)
+        currency_prices = self._get_price_data_with_cache(currency_id, start_date, end_date)
 
         if asset_prices.empty or currency_prices.empty:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'holding_value'])
@@ -233,11 +233,11 @@ class MetricService:
         for curr_id in unique_currencies:
             if curr_id != currency_id:
                 currency_price_data[curr_id] = self._get_price_data_with_cache(
-                    session, curr_id, action_start, action_end
+                    curr_id, action_start, action_end
                 )
         
         target_currency_prices = self._get_price_data_with_cache(
-            session, currency_id, action_start, action_end
+            currency_id, action_start, action_end
         )
 
         # Vectorized currency conversion for each currency group
@@ -334,7 +334,8 @@ class MetricService:
         else:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cash_flow_daily', 'cash_flow_cumulative'])
 
-    def get_cost_basis_simple(self, portfolio_id: int, asset_id: int, currency_id: int,
+    @with_session
+    def get_cost_basis_simple(self, session: Session, portfolio_id: int, asset_id: int, currency_id: int,
                              start_date: date = date(1970, 1, 1), 
                              end_date: date = datetime.now().date()) -> pd.DataFrame:
         """
@@ -345,83 +346,82 @@ class MetricService:
                        "For accurate tax reporting, use TaxLotService.get_tax_lot_cost_basis_time_series()")
         
         # This is your existing implementation - kept for compatibility
-        with self.db_access.session_scope() as session:
-            actions = self.db_access.get_buy_sell_actions_by_portfolio_id_asset_id(
-                session, portfolio_id, asset_id
-            )
-            
-            actions_df = pd.read_sql(actions.statement, session.bind)
-            
-            if actions_df.empty:
-                return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity'])
-            
-            actions_df = actions_df.sort_values(by='date').reset_index(drop=True)
-
-            actions_df['quantity'] = actions_df.apply(
-                lambda row: row['quantity'] if row['action_type_name'] == 'buy' else -row['quantity'], axis=1
-            )
-            actions_df['cost'] = 0.0
-            actions_df['asset_quantity'] = 0.0
-            actions_df['cost_basis_value'] = 0.0
-
-            for i, row in actions_df.iterrows():
-                if row['action_type_name'] == 'buy':
-                    if currency_id != row['currency_id']:
-                        try:
-                            conversion_rate = self.db_access.get_currency_conversion_on_date(
-                                session, row['currency_id'], currency_id, row['date']
-                            )
-                            actions_df.at[i, 'cost'] = conversion_rate * row['price'] * row['quantity']
-                        except Exception as e:
-                            logging.warning(f"Currency conversion failed: {e}")
-                            actions_df.at[i, 'cost'] = row['price'] * row['quantity']  # Fallback
-                    else:
-                        actions_df.at[i, 'cost'] = row['price'] * row['quantity']
-                else:  # sell action
-                    if i > 0 and actions_df.at[i-1, 'asset_quantity'] > 0:
-                        actions_df.at[i, 'cost'] = row['quantity'] * actions_df.at[i-1, 'cost_basis']
-
-                actions_df.at[i, 'asset_quantity'] = actions_df['quantity'][:i+1].sum()
-                actions_df.at[i, 'cost_basis_value'] = actions_df['cost'][:i+1].sum()
-                
-                if actions_df.at[i, 'asset_quantity'] > 0:
-                    actions_df.at[i, 'cost_basis'] = actions_df.at[i, 'cost_basis_value'] / actions_df.at[i, 'asset_quantity']
-                else:
-                    actions_df.at[i, 'cost_basis'] = 0
-
-            # Aggregate daily cost basis
-            actions_agg_df = actions_df.groupby(['date', 'portfolio_id', 'asset_id'])[
-                ['cost_basis','cost_basis_value','asset_quantity']
-            ].mean().reset_index()
-
-            # Create daily time series
-            if not actions_agg_df.empty:
-                full_date_range = pd.date_range(
-                    start=actions_agg_df['date'].min().date(), 
-                    end=datetime.now().date(), 
-                    freq='D'
-                )
-                
-                df = pd.DataFrame(index=full_date_range)
-                df.index.name = 'date'
-                
-                df = df.merge(actions_agg_df[['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity']], 
-                             left_index=True, right_on='date', how='left')
-                
-                df['cost_basis'] = df['cost_basis'].ffill().fillna(0)
-                df['cost_basis_value'] = df['cost_basis_value'].ffill().fillna(0)
-                df['asset_quantity'] = df['asset_quantity'].ffill().fillna(0)
-                df['portfolio_id'] = portfolio_id
-                df['asset_id'] = asset_id
-                
-                df = df.reset_index()
-                
-                # Filter to requested date range
-                df = df[(df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))]
-                
-                return df[['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity']]
-            
+        actions = self.db_access.get_buy_sell_actions_by_portfolio_id_asset_id(
+            session, portfolio_id, asset_id
+        )
+        
+        actions_df = pd.read_sql(actions.statement, session.bind)
+        
+        if actions_df.empty:
             return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity'])
+        
+        actions_df = actions_df.sort_values(by='date').reset_index(drop=True)
+
+        actions_df['quantity'] = actions_df.apply(
+            lambda row: row['quantity'] if row['action_type_name'] == 'buy' else -row['quantity'], axis=1
+        )
+        actions_df['cost'] = 0.0
+        actions_df['asset_quantity'] = 0.0
+        actions_df['cost_basis_value'] = 0.0
+
+        for i, row in actions_df.iterrows():
+            if row['action_type_name'] == 'buy':
+                if currency_id != row['currency_id']:
+                    try:
+                        conversion_rate = self.db_access.get_currency_conversion_on_date(
+                            session, row['currency_id'], currency_id, row['date']
+                        )
+                        actions_df.at[i, 'cost'] = conversion_rate * row['price'] * row['quantity']
+                    except Exception as e:
+                        logging.warning(f"Currency conversion failed: {e}")
+                        actions_df.at[i, 'cost'] = row['price'] * row['quantity']  # Fallback
+                else:
+                    actions_df.at[i, 'cost'] = row['price'] * row['quantity']
+            else:  # sell action
+                if i > 0 and actions_df.at[i-1, 'asset_quantity'] > 0:
+                    actions_df.at[i, 'cost'] = row['quantity'] * actions_df.at[i-1, 'cost_basis']
+
+            actions_df.at[i, 'asset_quantity'] = actions_df['quantity'][:i+1].sum()
+            actions_df.at[i, 'cost_basis_value'] = actions_df['cost'][:i+1].sum()
+            
+            if actions_df.at[i, 'asset_quantity'] > 0:
+                actions_df.at[i, 'cost_basis'] = actions_df.at[i, 'cost_basis_value'] / actions_df.at[i, 'asset_quantity']
+            else:
+                actions_df.at[i, 'cost_basis'] = 0
+
+        # Aggregate daily cost basis
+        actions_agg_df = actions_df.groupby(['date', 'portfolio_id', 'asset_id'])[
+            ['cost_basis','cost_basis_value','asset_quantity']
+        ].mean().reset_index()
+
+        # Create daily time series
+        if not actions_agg_df.empty:
+            full_date_range = pd.date_range(
+                start=actions_agg_df['date'].min().date(), 
+                end=datetime.now().date(), 
+                freq='D'
+            )
+            
+            df = pd.DataFrame(index=full_date_range)
+            df.index.name = 'date'
+            
+            df = df.merge(actions_agg_df[['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity']], 
+                         left_index=True, right_on='date', how='left')
+            
+            df['cost_basis'] = df['cost_basis'].ffill().fillna(0)
+            df['cost_basis_value'] = df['cost_basis_value'].ffill().fillna(0)
+            df['asset_quantity'] = df['asset_quantity'].ffill().fillna(0)
+            df['portfolio_id'] = portfolio_id
+            df['asset_id'] = asset_id
+            
+            df = df.reset_index()
+            
+            # Filter to requested date range
+            df = df[(df['date'] >= pd.to_datetime(start_date)) & (df['date'] <= pd.to_datetime(end_date))]
+            
+            return df[['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity']]
+        
+        return pd.DataFrame(columns=['date', 'portfolio_id', 'asset_id', 'cost_basis', 'cost_basis_value', 'asset_quantity'])
 
     def get_unrealized_gain_loss(self, portfolio_id: int, asset_id: int, currency_id: int,
                                 start_date: date = date(1970, 1, 1), 
