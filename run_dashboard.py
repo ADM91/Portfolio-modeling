@@ -21,7 +21,7 @@ def main():
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", 
             "frontend/dashboard.py",
-            "--server.port=8501",
+            "--server.port=8502",
             "--server.address=localhost",
             "--browser.gatherUsageStats=false"
         ], check=True)

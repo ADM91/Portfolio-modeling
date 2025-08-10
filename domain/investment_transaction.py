@@ -8,20 +8,20 @@ from decimal import Decimal
 from typing import Optional, Dict, Any
 import logging
 
-from .entities import Portfolio, Asset, ActionType
+from .entities import Portfolio, Asset, TransactionType
 
 
-class InvestmentAction:
+class InvestmentTransaction:
     """
-    Domain model for investment actions (buy, sell, dividend).
+    Domain model for investment transactions (buy, sell, dividend).
     Contains business logic and validation rules.
     """
     
     def __init__(
         self,
         portfolio: Portfolio,
-        action_type: ActionType,
-        date: datetime,
+        transaction_type: TransactionType,
+        transaction_datetime: datetime,
         asset: Asset,
         currency: Asset,
         price: Decimal,
@@ -29,12 +29,12 @@ class InvestmentAction:
         fee: Decimal = Decimal('0'),
         platform: Optional[str] = None,
         comment: Optional[str] = None,
-        action_id: Optional[int] = None
+        transaction_id: Optional[int] = None
     ):
-        self.id = action_id
+        self.id = transaction_id
         self.portfolio = portfolio
-        self.action_type = action_type
-        self.date = date
+        self.transaction_type = transaction_type
+        self.transaction_datetime = transaction_datetime
         self.asset = asset
         self.currency = currency
         self.price = price
@@ -56,8 +56,8 @@ class InvestmentAction:
         
         if self.fee < 0:
             raise ValueError(f"Fee cannot be negative, got {self.fee}")
-        
-        if self.action_type == ActionType.DIVIDEND and self.asset != self.currency:
+
+        if self.transaction_type == TransactionType.DIVIDEND and self.asset != self.currency:
             # For dividends, typically the asset and currency should be the same
             # or we need special handling
             pass  # Allow for now, but could add more specific validation
@@ -72,26 +72,26 @@ class InvestmentAction:
 
     def calculate_net_proceeds(self) -> Decimal:
         """Calculate net proceeds for sales (total value - fees)."""
-        if self.action_type != ActionType.SELL:
-            raise ValueError("Net proceeds only applicable for sell actions")
+        if self.transaction_type != TransactionType.SELL:
+            raise ValueError("Net proceeds only applicable for sell transactions")
         return self.calculate_total_value() - self.fee
 
     def get_quantity_change(self) -> Decimal:
-        """Get the quantity change this action represents for portfolio holdings."""
-        if self.action_type in (ActionType.BUY, ActionType.DIVIDEND):
+        """Get the quantity change this transaction represents for portfolio holdings."""
+        if self.transaction_type in (TransactionType.BUY, TransactionType.DIVIDEND):
             return self.quantity
-        elif self.action_type == ActionType.SELL:
+        elif self.transaction_type == TransactionType.SELL:
             return -self.quantity
         else:
-            raise ValueError(f"Unknown action type: {self.action_type}")
+            raise ValueError(f"Unknown transaction type: {self.transaction_type}")
 
     def is_purchase(self) -> bool:
-        """Check if this action increases holdings."""
-        return self.action_type in (ActionType.BUY, ActionType.DIVIDEND)
+        """Check if this transaction increases holdings."""
+        return self.transaction_type in (TransactionType.BUY, TransactionType.DIVIDEND)
 
     def is_sale(self) -> bool:
-        """Check if this action decreases holdings."""
-        return self.action_type == ActionType.SELL
+        """Check if this transaction decreases holdings."""
+        return self.transaction_type == TransactionType.SELL
 
     def is_long_term_holding(self, reference_date: Optional[date] = None) -> bool:
         """
@@ -101,7 +101,7 @@ class InvestmentAction:
         if reference_date is None:
             reference_date = date.today()
         
-        action_date = self.date.date() if isinstance(self.date, datetime) else self.date
+        action_date = self.transaction_datetime.date() if isinstance(self.transaction_datetime, datetime) else self.transaction_datetime
         holding_period = reference_date - action_date
         return holding_period.days > 365
 
@@ -114,8 +114,8 @@ class InvestmentAction:
         return {
             'id': self.id,
             'portfolio_id': self.portfolio.id,
-            'action_type': self.action_type.value,
-            'date': self.date,
+            'transaction_type': self.transaction_type.value,
+            'transaction_datetime': self.transaction_datetime,
             'asset_id': self.asset.id,
             'currency_id': self.currency.id,
             'price': self.price,
@@ -133,12 +133,12 @@ class InvestmentAction:
         portfolio: Portfolio, 
         asset: Asset, 
         currency: Asset
-    ) -> 'InvestmentAction':
-        """Create an InvestmentAction from dictionary data."""
+    ) -> 'InvestmentTransaction':
+        """Create an InvestmentTransaction from dictionary data."""
         return cls(
             portfolio=portfolio,
-            action_type=ActionType(data['action_type']),
-            date=data['date'],
+            transaction_type=TransactionType(data['transaction_type']),
+            transaction_datetime=data['transaction_datetime'],
             asset=asset,
             currency=currency,
             price=Decimal(str(data['price'])),
@@ -146,14 +146,14 @@ class InvestmentAction:
             fee=Decimal(str(data.get('fee', 0))),
             platform=data.get('platform'),
             comment=data.get('comment'),
-            action_id=data.get('id')
+            transaction_id=data.get('id')
         )
 
     def __str__(self) -> str:
-        return (f"{self.action_type.value.upper()} {self.quantity} {self.asset.ticker} "
-                f"@ {self.price} on {self.date.strftime('%Y-%m-%d')}")
+        return (f"{self.transaction_type.value.upper()} {self.quantity} {self.asset.ticker} "
+                f"@ {self.price} on {self.transaction_datetime.strftime('%Y-%m-%d')}")
 
     def __repr__(self) -> str:
-        return (f"InvestmentAction(id={self.id}, portfolio={self.portfolio.name}, "
-                f"action_type={self.action_type.value}, asset={self.asset.ticker}, "
-                f"quantity={self.quantity}, price={self.price}, date={self.date})")
+        return (f"InvestmentTransaction(id={self.id}, portfolio={self.portfolio.name}, "
+                f"transaction_type={self.transaction_type.value}, asset={self.asset.ticker}, "
+                f"quantity={self.quantity}, price={self.price}, date={self.transaction_datetime})")

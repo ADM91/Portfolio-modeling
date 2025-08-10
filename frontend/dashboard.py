@@ -221,7 +221,7 @@ def display_summary_metrics(holdings_df: pd.DataFrame, invested_df: pd.DataFrame
     
     with col1:
         if not holdings_df.empty:
-            current_value = holdings_df.groupby('date')['holding_value'].sum().iloc[-1]
+            current_value = holdings_df.groupby('transaction_datetime')['holding_value'].sum().iloc[-1]
             st.metric(
                 label=f"Current Portfolio Value",
                 value=f"{current_value:,.2f} {base_symbol}",
@@ -232,7 +232,7 @@ def display_summary_metrics(holdings_df: pd.DataFrame, invested_df: pd.DataFrame
     
     with col2:
         if not invested_df.empty:
-            total_invested = invested_df.groupby('date')['cash_flow_cumulative'].sum().iloc[-1]
+            total_invested = invested_df.groupby('transaction_datetime')['cash_flow_cumulative'].sum().iloc[-1]
             st.metric(
                 label=f"Total Invested",
                 value=f"{total_invested:,.2f} {base_symbol}",
@@ -243,8 +243,8 @@ def display_summary_metrics(holdings_df: pd.DataFrame, invested_df: pd.DataFrame
     
     with col3:
         if not holdings_df.empty and not invested_df.empty:
-            current_value = holdings_df.groupby('date')['holding_value'].sum().iloc[-1]
-            total_invested = invested_df.groupby('date')['cash_flow_cumulative'].sum().iloc[-1]
+            current_value = holdings_df.groupby('transaction_datetime')['holding_value'].sum().iloc[-1]
+            total_invested = invested_df.groupby('transaction_datetime')['cash_flow_cumulative'].sum().iloc[-1]
             unrealized_pnl = current_value - total_invested
             pnl_pct = (unrealized_pnl / total_invested * 100) if total_invested != 0 else 0
             
@@ -269,48 +269,127 @@ def display_summary_metrics(holdings_df: pd.DataFrame, invested_df: pd.DataFrame
             st.metric("Total Return", "No data")
 
 def display_holdings_chart(holdings_df: pd.DataFrame, base_symbol: str):
-    """Display holdings value chart"""
+    """Display holdings value chart as stacked area chart showing each asset"""
     if holdings_df.empty:
         st.warning("No holdings data available")
         return
     
-    st.subheader(f"Portfolio Holdings Value Over Time ({base_symbol})")
+    st.subheader(f"Portfolio Holdings Value by Asset Over Time ({base_symbol})")
     
-    # Aggregate by date
-    daily_holdings = holdings_df.groupby('date')['holding_value'].sum().reset_index()
+    # Get asset information for proper labeling
+    available_assets = api_client.get_available_assets()
+    asset_lookup = {asset['id']: f"{asset['symbol']} - {asset['name']}" for asset in available_assets}
     
+    # Group by date and asset_id to preserve individual asset data
+    daily_holdings = holdings_df.groupby(['transaction_datetime', 'asset_id'])['holding_value'].sum().reset_index()
+    
+    # Create stacked area chart
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=daily_holdings['date'],
-        y=daily_holdings['holding_value'],
-        mode='lines',
-        name='Holdings Value',
-        line=dict(color='#1f77b4', width=2),
-        fill='tonexty',
-        fillcolor='rgba(31, 119, 180, 0.1)'
-    ))
+    
+    # Color palette for different assets
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', 
+              '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    # Get unique assets and sort them for consistent ordering
+    unique_assets = sorted(daily_holdings['asset_id'].unique())
+    
+    for i, asset_id in enumerate(unique_assets):
+        asset_data = daily_holdings[daily_holdings['asset_id'] == asset_id]
+        asset_name = asset_lookup.get(asset_id, f"Asset {asset_id}")
+        color = colors[i % len(colors)]
+        
+        fig.add_trace(go.Scatter(
+            x=asset_data['transaction_datetime'],
+            y=asset_data['holding_value'],
+            mode='lines',
+            name=asset_name,
+            line=dict(width=0),
+            fill='tonexty' if i > 0 else 'tozeroy',
+            fillcolor=f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.6)',
+            stackgroup='one',  # This creates the stacked effect
+            hovertemplate=f'<b>{asset_name}</b><br>' +
+                         'Date: %{x}<br>' +
+                         f'Value: %{{y:,.2f}} {base_symbol}<br>' +
+                         '<extra></extra>'
+        ))
     
     fig.update_layout(
-        title=f"Portfolio Holdings Value ({base_symbol})",
+        title=f"Portfolio Holdings Value by Asset ({base_symbol})",
         xaxis_title="Date",
         yaxis_title=f"Value ({base_symbol})",
         hovermode='x unified',
         showlegend=True,
-        height=500
+        height=500,
+        legend=dict(
+            orientation="v",
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.02
+        )
     )
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Show breakdown by portfolio/asset if multiple
+    # Show asset allocation summary
+    if len(unique_assets) > 1:
+        with st.expander("📊 Current Asset Allocation"):
+            # Get the latest date's data
+            latest_date = daily_holdings['transaction_datetime'].max()
+            latest_data = daily_holdings[daily_holdings['transaction_datetime'] == latest_date].copy()
+            
+            # Calculate percentages
+            total_value = latest_data['holding_value'].sum()
+            latest_data['percentage'] = (latest_data['holding_value'] / total_value * 100).round(2)
+            latest_data['asset_name'] = latest_data['asset_id'].map(asset_lookup)
+            
+            # Sort by value descending
+            latest_data = latest_data.sort_values('holding_value', ascending=False)
+            
+            # Display allocation table
+            allocation_df = latest_data[['asset_name', 'holding_value', 'percentage']].copy()
+            allocation_df.columns = ['Asset', f'Value ({base_symbol})', 'Allocation (%)']
+            allocation_df[f'Value ({base_symbol})'] = allocation_df[f'Value ({base_symbol})'].apply(lambda x: f"{x:,.2f}")
+            
+            st.dataframe(allocation_df, use_container_width=True, hide_index=True)
+            
+            # Show pie chart for allocation
+            fig_pie = go.Figure(data=[go.Pie(
+                labels=latest_data['asset_name'],
+                values=latest_data['holding_value'],
+                hovertemplate='<b>%{label}</b><br>' +
+                             f'Value: %{{value:,.2f}} {base_symbol}<br>' +
+                             'Percentage: %{percent}<br>' +
+                             '<extra></extra>'
+            )])
+            
+            fig_pie.update_layout(
+                title=f"Current Asset Allocation ({latest_date.strftime('%Y-%m-%d')})",
+                height=400
+            )
+            
+            st.plotly_chart(fig_pie, use_container_width=True)
+    
+    # Show detailed breakdown table if multiple assets
     if len(holdings_df['portfolio_id'].unique()) > 1 or len(holdings_df['asset_id'].unique()) > 1:
-        with st.expander("📊 Detailed Breakdown"):
+        with st.expander("📈 Historical Data Table"):
+            # Create pivot table for easier reading
+            pivot_df = holdings_df.pivot_table(
+                index='transaction_datetime', 
+                columns='asset_id', 
+                values='holding_value', 
+                fill_value=0
+            )
+            
+            # Rename columns with asset names
+            pivot_df.columns = [asset_lookup.get(asset_id, f"Asset {asset_id}") for asset_id in pivot_df.columns]
+            
+            # Add total column
+            pivot_df['Total'] = pivot_df.sum(axis=1)
+            
+            # Show last 10 days
             st.dataframe(
-                holdings_df.pivot_table(
-                    index='date', 
-                    columns=['portfolio_id', 'asset_id'], 
-                    values='holding_value', 
-                    fill_value=0
-                ).tail(10),
+                pivot_df.tail(10).style.format("{:,.2f}"),
                 use_container_width=True
             )
 
@@ -323,17 +402,17 @@ def display_investment_flow_chart(holdings_df: pd.DataFrame, invested_df: pd.Dat
     st.subheader(f"Holdings vs Investment Flow ({base_symbol})")
     
     # Aggregate data
-    daily_holdings = holdings_df.groupby('date')['holding_value'].sum().reset_index()
-    daily_invested = invested_df.groupby('date')['cash_flow_cumulative'].sum().reset_index()
+    daily_holdings = holdings_df.groupby('transaction_datetime')['holding_value'].sum().reset_index()
+    daily_invested = invested_df.groupby('transaction_datetime')['cash_flow_cumulative'].sum().reset_index()
     
     # Merge data
-    merged_df = pd.merge(daily_holdings, daily_invested, on='date', how='outer').ffill()
+    merged_df = pd.merge(daily_holdings, daily_invested, on='transaction_datetime', how='outer').ffill()
     
     fig = go.Figure()
     
     # Holdings value
     fig.add_trace(go.Scatter(
-        x=merged_df['date'],
+        x=merged_df['transaction_datetime'],
         y=merged_df['holding_value'],
         mode='lines',
         name='Current Holdings Value',
@@ -342,7 +421,7 @@ def display_investment_flow_chart(holdings_df: pd.DataFrame, invested_df: pd.Dat
     
     # Invested value
     fig.add_trace(go.Scatter(
-        x=merged_df['date'],
+        x=merged_df['transaction_datetime'],
         y=merged_df['cash_flow_cumulative'],
         mode='lines',
         name='Cumulative Invested',
@@ -383,7 +462,7 @@ def display_performance_chart(returns_df: pd.DataFrame, base_symbol: str):
     # Cumulative returns
     fig.add_trace(
         go.Scatter(
-            x=returns_df_pct['date'],
+            x=returns_df_pct['transaction_datetime'],
             y=returns_df_pct['time_weighted_return_pct'],
             mode='lines',
             name='Cumulative Return',
@@ -396,7 +475,7 @@ def display_performance_chart(returns_df: pd.DataFrame, base_symbol: str):
     colors = ['red' if x < 0 else 'green' for x in returns_df_pct['daily_return_pct']]
     fig.add_trace(
         go.Bar(
-            x=returns_df_pct['date'],
+            x=returns_df_pct['transaction_datetime'],
             y=returns_df_pct['daily_return_pct'],
             name='Daily Return',
             marker_color=colors,

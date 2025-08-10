@@ -8,10 +8,18 @@ from sqlalchemy.orm import sessionmaker, joinedload, Session
 from typing import List, Dict, Optional, Callable
 from datetime import datetime, timedelta, date
 from functools import wraps
+from decimal import Decimal, InvalidOperation
+import decimal
 import pandas as pd
 
-from database.entities import *
+from database.entities import (
+    Base, Asset, Portfolio, Transaction, TransactionType, PriceHistory,
+    PortfolioHoldingsTimeSeries, TaxLot, TaxLotTransaction
+)
 from config import settings
+from utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Use settings from config instead of environment variable directly
 engine = create_engine(settings.database_url)
@@ -23,7 +31,6 @@ def session_scope():
     session = SessionFactory()
     try:
         yield session
-        
         session.commit()
     except:
         session.rollback()
@@ -67,17 +74,105 @@ class DatabaseAccess:
             data (List[Dict]): List of dictionaries containing data to insert
             filter_fields (Optional[List[str]]): Fields to use for filtering existing data
         """
-        for item in data:
-            if filter_fields:
-                filter_dict = {field: item[field] for field in filter_fields if field in item}
-                exists = session.query(model).filter_by(**filter_dict).first()
-            else: 
-                exists = session.query(model).filter_by(**item).first()
-            if not exists:
-                obj = model(**item)
-                session.add(obj)
+        model_name = model.__name__
+        logger.debug(f"Starting insert_if_not_exists for {model_name}", extra={
+            'context': {
+                'model': model_name,
+                'data_count': len(data),
+                'filter_fields': filter_fields
+            }
+        })
+        
+        inserted_count = 0
+        skipped_count = 0
+        
+        for i, item in enumerate(data):
+            try:
+                logger.debug(f"Processing item {i+1}/{len(data)} for {model_name}", extra={
+                    'context': {'item': item, 'model': model_name}
+                })
+                
+                # Convert float values to Decimal for financial fields
+                converted_item = self._convert_financial_fields_to_decimal(item, model)
+                
+                # Log conversion if different from original
+                if converted_item != item:
+                    logger.debug(f"Data conversion applied for {model_name}", extra={
+                        'context': {
+                            'original': item,
+                            'converted': converted_item,
+                            'model': model_name
+                        }
+                    })
+                
+                if filter_fields:
+                    filter_dict = {field: converted_item[field] for field in filter_fields if field in converted_item}
+                    logger.debug(f"Checking existence with filter fields", extra={
+                        'context': {'filter_dict': filter_dict, 'model': model_name}
+                    })
+                    exists = session.query(model).filter_by(**filter_dict).first()
+                else:
+                    logger.debug(f"Checking existence with all fields", extra={
+                        'context': {'converted_item': converted_item, 'model': model_name}
+                    })
+                    exists = session.query(model).filter_by(**converted_item).first()
+                
+                if not exists:
+                    obj = model(**converted_item)
+                    session.add(obj)
+                    inserted_count += 1
+                    logger.debug(f"Inserted new {model_name} record", extra={
+                        'context': {'data': converted_item, 'model': model_name}
+                    })
+                else:
+                    skipped_count += 1
+                    logger.debug(f"Skipped existing {model_name} record", extra={
+                        'context': {'data': converted_item, 'model': model_name}
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error processing item {i+1} for {model_name}: {str(e)}", extra={
+                    'context': {
+                        'item': item,
+                        'model': model_name,
+                        'item_index': i
+                    }
+                }, exc_info=True)
+                raise
+        
+        logger.info(f"Completed insert_if_not_exists for {model_name}", extra={
+            'context': {
+                'model': model_name,
+                'total_processed': len(data),
+                'inserted': inserted_count,
+                'skipped': skipped_count
+            }
+        })
 
-    def add_asset(self, session: Session, ticker: str, name: str) -> Asset:
+    def _convert_financial_fields_to_decimal(self, data: Dict, model: Base) -> Dict:
+        """Convert financial fields to Decimal for precision"""
+        converted = data.copy()
+        
+        # Define financial fields that should be Decimal
+        financial_fields = {
+            'price', 'quantity', 'fee', 'open', 'high', 'low', 'close',
+            'original_quantity', 'remaining_quantity', 'cost_basis_per_unit',
+            'quantity_change', 'proceeds', 'realized_gain_loss', 'exchange_rate'
+        }
+        
+        for field, value in converted.items():
+            if field in financial_fields and value is not None:
+                if isinstance(value, (int, float, str)):
+                    try:
+                        converted[field] = Decimal(str(value))
+                    except (ValueError, TypeError, decimal.InvalidOperation):
+                        logging.warning(f"Could not convert {field}={value} to Decimal")
+                        # Keep the original value if conversion fails
+                        converted[field] = value
+        
+        return converted
+
+    def add_asset(self, session: Session, ticker: str, name: str, **kwargs) -> Asset:
         """
         Add a new asset or update an existing one.
 
@@ -85,6 +180,7 @@ class DatabaseAccess:
             session (Session): SQLAlchemy session
             ticker (str): Asset ticker
             name (str): Asset name
+            **kwargs: Additional asset properties (is_currency, is_inverted, etc.)
 
         Returns:
             Asset: The added or updated asset
@@ -94,16 +190,23 @@ class DatabaseAccess:
         if existing_asset:
             if existing_asset.name != name:
                 existing_asset.name = name
+            # Update other properties if provided
+            for key, value in kwargs.items():
+                if hasattr(existing_asset, key):
+                    setattr(existing_asset, key, value)
             return existing_asset
         else:
-            new_asset = Asset(ticker=ticker, name=name)
+            # Set code to ticker if not provided
+            if 'code' not in kwargs:
+                kwargs['code'] = ticker
+            new_asset = Asset(ticker=ticker, name=name, **kwargs)
             session.add(new_asset)
             session.flush()
             return new_asset
 
     def add_price_history(self, session: Session, ticker: str, price_history: List[Dict]) -> None:
         """
-        Add price history for an asset.
+        Add price history for an asset with Decimal precision.
 
         Args:
             session (Session): SQLAlchemy session
@@ -113,6 +216,9 @@ class DatabaseAccess:
         asset = session.query(Asset).filter(Asset.ticker == ticker).first()
         if not asset:
             raise ValueError(f"Asset with ticker {ticker} not found")
+
+        if not price_history:
+            return
 
         min_date = min(entry['date'] for entry in price_history)
 
@@ -129,27 +235,31 @@ class DatabaseAccess:
         to_update = []
 
         for entry in price_history:
-            date = entry['date'].date() if isinstance(entry['date'], datetime) else entry['date']
+            # Convert financial values to Decimal
+            converted_entry = self._convert_financial_fields_to_decimal(entry, PriceHistory)
+            
+            date = converted_entry['date'].date() if isinstance(converted_entry['date'], datetime) else converted_entry['date']
+            
             if date in existing_dates:
                 to_update.append({
                     'id': existing_dates[date],
                     'asset_id': asset.id,
                     'date': date,
-                    'open': entry['open'],
-                    'high': entry['high'],
-                    'low': entry['low'],
-                    'close': entry['close'],
-                    'volume': entry['volume']
+                    'open': converted_entry['open'],
+                    'high': converted_entry['high'],
+                    'low': converted_entry['low'],
+                    'close': converted_entry['close'],
+                    'volume': converted_entry.get('volume', 0)
                 })
             else:
                 to_insert.append(PriceHistory(
                     asset_id=asset.id,
                     date=date,
-                    open=entry['open'],
-                    high=entry['high'],
-                    low=entry['low'],
-                    close=entry['close'],
-                    volume=entry['volume']
+                    open=converted_entry['open'],
+                    high=converted_entry['high'],
+                    low=converted_entry['low'],
+                    close=converted_entry['close'],
+                    volume=converted_entry.get('volume', 0)
                 ))
 
         if to_insert:
@@ -159,32 +269,24 @@ class DatabaseAccess:
             session.bulk_update_mappings(PriceHistory, to_update)
 
     def get_all_assets(self, session: Session) -> List[Asset]:
-        """
-        Get all assets.
-
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            List[Asset]: List of all assets
-        """
+        """Get all assets."""
         return session.query(Asset).all()
 
     def get_all_currencies(self, session: Session) -> List[Asset]:
-        """
-        Get all currency assets.
-
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            List[Asset]: List of all currency assets
-        """
+        """Get all currency assets."""
         return session.query(Asset).filter(Asset.is_currency == True).all()
 
-    def get_currency_conversion_on_date(self, session: Session, from_currency_id: int, to_currency_id: int, date: datetime):
+    def get_currency_conversion_on_date(self, session: Session, from_currency_id: int, to_currency_id: int, date: datetime) -> float:
+        """
+        Get currency conversion rate on a specific date.
+        Returns float for compatibility with existing code.
+        """
+        if from_currency_id == to_currency_id:
+            return 1.0
 
-        # Price on last available date
+        # TODO: Implement currency conversion cache if needed
+
+        # Calculate from price history
         from_currency_price = session.query(PriceHistory.date, PriceHistory.close.label('from_currency_price'))\
             .filter(PriceHistory.asset_id == from_currency_id)\
             .filter(PriceHistory.date <= date)\
@@ -204,10 +306,21 @@ class DatabaseAccess:
             (from_currency_price.c.from_currency_price / to_currency_price.c.to_currency_price).label('exchange_rate')
         ).first()
 
-        # The result is now available as exchange_rate.exchange_rate
-        return exchange_rate.exchange_rate
+        if exchange_rate and exchange_rate.exchange_rate:
+            rate = float(exchange_rate.exchange_rate)
+            
+            # TODO: Cache the result for future use if needed
+            
+            return rate
+        else:
+            raise ValueError(f"Could not find price data for currency conversion on {date}")
 
     def get_currency_conversion_time_series(self, session: Session, from_currency_id: int, to_currency_id: int, start_date: datetime, end_date: datetime):
+        """Get currency conversion time series."""
+        if from_currency_id == to_currency_id:
+            # Return 1.0 for same currency
+            date_range = pd.date_range(start=start_date, end=end_date)
+            return [(date, 1.0, 1.0) for date in date_range]
 
         # Fetch price history for both currencies
         from_currency_prices = session.query(PriceHistory.date, PriceHistory.close.label('from_currency_price'))\
@@ -234,217 +347,53 @@ class DatabaseAccess:
         return conversion_rates
 
     def get_last_price_date(self, session: Session, ticker: str) -> Optional[datetime]:
-        """
-        Get the date of the last price for a given asset.
-
-        Args:
-            session (Session): SQLAlchemy session
-            ticker (str): Asset ticker
-
-        Returns:
-            Optional[datetime]: Date of the last price, or None if not found
-        """
+        """Get the date of the last price for a given asset."""
         asset = session.query(Asset).filter(Asset.ticker == ticker).first()
         if asset:
             last_price = session.query(PriceHistory).filter(PriceHistory.asset_id == asset.id).order_by(PriceHistory.date.desc()).first()
             return last_price.date if last_price else None
         return None
 
-    def get_action_type_by_name(self, session: Session, name: str) -> Optional[ActionType]:
-        """
-        Get an action type by its name.
-
-        Args:
-            session (Session): SQLAlchemy session
-            name (str): Name of the action type
-
-        Returns:
-            Optional[ActionType]: The action type, or None if not found
-        """
-        return session.query(ActionType).filter(ActionType.name == name).first()
-
-    def get_buy_sell_actions_by_portfolio_id_asset_id(self, session: Session, portfolio_id: int, asset_id: int) -> Session.query:
-
-        actions = (
-            session.query(Action, ActionType.name.label('action_type_name'))
-            .join(ActionType, Action.action_type_id == ActionType.id)
-            .filter(
-                Action.portfolio_id == portfolio_id,
-                Action.asset_id == asset_id,
-                Action.action_type_id.in_([1, 2])  # 1 for buy, 2 for sell
-            )
-        )
-        
-        return actions
-
     def get_asset_by_code(self, session: Session, code: str) -> Optional[Asset]:
-        """
-        Get an asset by its code.
-
-        Args:
-            session (Session): SQLAlchemy session
-            code (str): Asset code
-
-        Returns:
-            Optional[Asset]: The asset, or None if not found
-        """
+        """Get an asset by its code."""
         return session.query(Asset).filter(Asset.code == code).first()
 
     def get_portfolio_by_name(self, session: Session, name: str) -> Optional[Portfolio]:
-        """
-        Get a portfolio by its name.
-
-        Args:
-            session (Session): SQLAlchemy session
-            name (str): Portfolio name
-
-        Returns:
-            Optional[Portfolio]: The portfolio, or None if not found
-        """
+        """Get a portfolio by its name."""
         return session.query(Portfolio).filter(Portfolio.name == name).first()
 
-    def get_unprocessed_actions(self, session: Session) -> List[Action]:
-        """
-        Get all unprocessed actions.
+    def get_transaction_type_by_name(self, session: Session, name: str) -> Optional[TransactionType]:
+        """Get a transaction type by its name."""
+        return session.query(TransactionType).filter(TransactionType.name == name.lower()).first()
 
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            List[Action]: List of unprocessed actions
-        """
-        return session.query(Action).filter(Action.is_processed == False).order_by(Action.date).all()
-
-    def update_action(self, session: Session, action: Action) -> None:
-        """
-        Update an action to mark it as processed.
-        
-        This method updates the 'is_processed' field of the given action to True.
-
-        Args:
-            session (Session): The SQLAlchemy session for database operations.
-            action (Action): The action object to be updated.
-
-        Returns:
-            None
-
-        Note:
-            This method only updates the 'is_processed' field and does not commit the session.
-            The caller is responsible for committing or rolling back the session as needed.
-        """
-        session.query(Action).filter(Action.id == action.id).update({'is_processed': True})
-
-    def get_last_holdings_time_series_update(self, session: Session) -> Optional[datetime]:
-        """
-        Get the date of the last update to the holdings time series.
-
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            Optional[datetime]: Date of the last update, or None if no updates
-        """
-        last_update = session.query(func.max(PortfolioHoldingsTimeSeries.date)).scalar()
-        return last_update.date() if last_update else None
-
-    def clear_holdings_time_series(self, session: Session) -> None:
-        """
-        Clear all entries from the holdings time series.
-
-        Args:
-            session (Session): SQLAlchemy session
-        """
-        session.query(PortfolioHoldingsTimeSeries).delete()
+    def get_unprocessed_transactions(self, session: Session) -> List[Transaction]:
+        """Get all unprocessed transactions."""
+        return session.query(Transaction).filter(Transaction.is_processed == False).order_by(Transaction.transaction_datetime).all()
 
     def get_earliest_action_date(self, session: Session) -> datetime:
-        """
-        Get the date of the earliest action.
-
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            datetime: Date of the earliest action, or current date if no actions
-        """
-        earliest_date = session.query(func.min(Action.date)).scalar()
+        """Get the date of the earliest action."""
+        earliest_date = session.query(func.min(Transaction.transaction_datetime)).scalar()
         return earliest_date.date() if earliest_date else datetime.now().date()
 
     def get_portfolios(self, session: Session) -> List[Portfolio]:
-        """
-        Get all portfolios.
-
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            List[Portfolio]: List of all portfolios
-        """
+        """Get all portfolios."""
         return session.query(Portfolio).all()
 
     def get_portfolio_assets(self, session: Session, portfolio_id: int) -> List[Asset]:
-        """
-        Get all unique assets associated with a specific portfolio.
+        """Get all unique assets associated with a specific portfolio."""
+        return session.query(Asset).join(Transaction, Asset.id == Transaction.asset_id).filter(Transaction.portfolio_id == portfolio_id).distinct().all()
 
-        This method retrieves all assets that have been involved in any action
-        within the specified portfolio.
-
-        Args:
-            session (Session): SQLAlchemy session
-            portfolio_id (int): ID of the portfolio
-
-        Returns:
-            List[Asset]: A list of unique Asset objects associated with the portfolio
-        """
-        # TODO: this is wrong, no join on Action
-        return session.query(Asset).join(Action).filter(Action.portfolio_id == portfolio_id).distinct().all()
-
-    def get_portfolio_asset_actions(self, session: Session, portfolio_id: int, asset_id: int) -> List[Action]:
-        """
-        Get all actions for a specific asset in a specific portfolio.
-
-        Args:
-            session (Session): SQLAlchemy session
-            portfolio_id (int): ID of the portfolio
-            asset_id (int): ID of the asset
-
-        Returns:
-            List[Action]: List of actions
-        """
-        return session.query(Action).options(
-            joinedload(Action.action_type)
+    def get_portfolio_asset_transactions(self, session: Session, portfolio_id: int, asset_id: int) -> List[Transaction]:
+        """Get all transactions for a specific asset in a specific portfolio."""
+        return session.query(Transaction).options(
+            joinedload(Transaction.transaction_type)
         ).filter(
-            Action.portfolio_id == portfolio_id,
-            Action.asset_id == asset_id
-        ).order_by(Action.date).all()
-
-    def store_holdings_time_series(self, session: Session, holdings_data: List[Dict]) -> None:
-        """
-        Store or update portfolio holdings time series data.
-
-        Args:
-            session (Session): SQLAlchemy session
-            holdings_data (List[Dict]): List of dictionaries containing holdings data to store or update
-
-        Returns:
-            None
-        """
-        for holding in holdings_data:
-            session.merge(PortfolioHoldingsTimeSeries(**holding))
+            Transaction.portfolio_id == portfolio_id,
+            Transaction.asset_id == asset_id
+        ).order_by(Transaction.transaction_datetime).all()
 
     def get_asset_price_history(self, session: Session, asset_id: int, start_date: datetime, end_date: datetime) -> List[PriceHistory]:
-        """
-        Get asset prices for a specific asset between the specified date range.
-
-        Args:
-            session (Session): SQLAlchemy session
-            asset_id (int): ID of the asset
-            start_date (datetime): Start date of the range
-            end_date (datetime): End date of the range
-
-        Returns:
-            List[PriceHistory]: A list of PriceHistory objects for the specified asset and date range,
-                                ordered by date
-        """
+        """Get asset prices for a specific asset between the specified date range."""
         return session.query(PriceHistory).filter(
             PriceHistory.asset_id == asset_id,
             PriceHistory.date.between(start_date, end_date)
@@ -452,43 +401,29 @@ class DatabaseAccess:
 
     def get_asset_price_history_df(self, session: Session, asset_id: int, start_date: date, end_date: date) -> pd.DataFrame:
         """
-        Get asset prices for a specific asset between the specified date range as a pandas DataFrame.
-
-        Args:
-            session (Session): SQLAlchemy session
-            asset_id (int): ID of the asset
-            start_date (datetime): Start date of the range
-            end_date (datetime): End date of the range
-
-        Returns:
-            pd.DataFrame: A DataFrame containing PriceHistory data for the specified asset and date range,
-                                ordered by date
+        Get asset prices as a pandas DataFrame.
+        Converts Decimal values to float for pandas compatibility.
         """
-
         # Construct the SQL query
         query = select(PriceHistory.asset_id, PriceHistory.date, PriceHistory.close).filter(
             PriceHistory.asset_id == asset_id,
             PriceHistory.date >= start_date,
-            PriceHistory.date < end_date + timedelta(days=1)  # ensure that we don´t miss the last day
+            PriceHistory.date < end_date + timedelta(days=1)
         ).order_by(PriceHistory.date)
 
         # Execute the query and fetch results directly into a DataFrame
         df = pd.read_sql(query, session.bind)
+        
+        # Convert Decimal columns to float for pandas operations
+        numeric_columns = ['close']
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
 
         return df
 
     def get_portfolio_asset_time_series(self, session: Session, portfolio_id: int, asset_id: int) -> List[PortfolioHoldingsTimeSeries]:
-        """
-        Get the complete time series of holdings for a specific asset in a specific portfolio.
-
-        Args:
-            session (Session): SQLAlchemy session
-            portfolio_id (int): ID of the portfolio
-            asset_id (int): ID of the asset
-
-        Returns:
-            List[PortfolioHoldingsTimeSeries]: List of all holdings time series entries for the specified asset and portfolio
-        """
+        """Get the complete time series of holdings for a specific asset in a specific portfolio."""
         return session.query(PortfolioHoldingsTimeSeries).filter(
             PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
             PortfolioHoldingsTimeSeries.asset_id == asset_id
@@ -496,15 +431,8 @@ class DatabaseAccess:
 
     def get_portfolio_asset_time_series_df(self, session: Session, portfolio_id: int, asset_id: int) -> pd.DataFrame:
         """
-        Get the complete time series of holdings for a specific asset in a specific portfolio as a pandas DataFrame.
-
-        Args:
-            session (Session): SQLAlchemy session
-            portfolio_id (int): ID of the portfolio
-            asset_id (int): ID of the asset
-
-        Returns:
-            pd.DataFrame: DataFrame containing all holdings time series entries for the specified asset and portfolio
+        Get holdings time series as a pandas DataFrame.
+        Converts Decimal values to float for pandas compatibility.
         """
         # Construct the SQL query
         query = select(PortfolioHoldingsTimeSeries).filter(
@@ -514,60 +442,43 @@ class DatabaseAccess:
 
         # Execute the query and fetch results directly into a DataFrame
         df = pd.read_sql(query, session.bind)
+        
+        # Convert Decimal columns to float for pandas operations
+        numeric_columns = ['quantity']
+        for col in numeric_columns:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
 
         return df
 
     def get_portfolio_holdings_time_series(self, session: Session, portfolio_id: int, asset_id: int, start_date: datetime, end_date: datetime) -> List[PortfolioHoldingsTimeSeries]:
-        """
-        Get the holdings time series for a specific asset in a specific portfolio within a date range.
-
-        Args:
-            session (Session): SQLAlchemy session
-            portfolio_id (int): ID of the portfolio
-            asset_id (int): ID of the asset
-            start_date (datetime): Start date of the range
-            end_date (datetime): End date of the range
-
-        Returns:
-            List[PortfolioHoldingsTimeSeries]: List of holdings time series entries
-        """
+        """Get the holdings time series for a specific asset in a specific portfolio within a date range."""
         return session.query(PortfolioHoldingsTimeSeries).filter(
             PortfolioHoldingsTimeSeries.portfolio_id == portfolio_id,
             PortfolioHoldingsTimeSeries.asset_id == asset_id,
             PortfolioHoldingsTimeSeries.date.between(start_date, end_date)
         ).order_by(PortfolioHoldingsTimeSeries.date).all()
 
-    def update_holding_time_series(self, session: Session, action: Action, end_date: datetime) -> None:
-        """
-        Forward fill the holding time series for a specific action up to the end date.
-
-        Args:
-            session (Session): SQLAlchemy session
-            action (Action): The action to forward fill from
-            end_date (datetime): The end date to fill up to
-
-        Returns:
-            None
-        """
-
+    def update_holding_time_series(self, session: Session, action: Transaction, end_date: datetime) -> None:
+        """Forward fill the holding time series for a specific action up to the end date."""
         # Get the latest holding entry for this action
         latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
             PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
             PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
-            PortfolioHoldingsTimeSeries.date <= action.date
+            PortfolioHoldingsTimeSeries.date <= action.transaction_datetime
         ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
 
         # If no previous holding exists, use the action's quantity
         if latest_holding:
             quantity = latest_holding.quantity 
         else:
-            if action.action_type.name in ('buy', 'dividend'):
+            if action.transaction_type.name in ('buy', 'dividend'):
                 quantity = action.quantity
-            elif action.action_type.name == 'sell':
+            elif action.transaction_type.name == 'sell':
                 quantity = -action.quantity
 
         # Generate date range from the day after the action to the end date
-        start_date = (action.date + timedelta(days=1)).date()
+        start_date = (action.transaction_datetime + timedelta(days=1)).date()
         while start_date <= end_date:
             # Check if an entry already exists for this date
             existing_entry = session.query(PortfolioHoldingsTimeSeries).filter(
@@ -591,34 +502,19 @@ class DatabaseAccess:
 
             start_date += timedelta(days=1)
 
-    def insert_holding_time_series_ffill(self, session: Session, action: Action, end_date: datetime) -> None:
-        """
-        Update the portfolio holdings time series using forward fill (ffill) method.
-
-        This method creates or updates daily holdings entries for a specific asset in a portfolio
-        from the day after the last known holding up to the specified end date.
-        It uses the most recent known quantity and forward-fills it for all subsequent dates.
-
-        Args:
-            session (Session): The database session for executing queries and updates.
-            action (Action): The action object containing portfolio_id, asset_id, and date information.
-            end_date (datetime): The end date up to which the holdings should be updated.
-
-        Returns:
-            None
-        """
+    def insert_holding_time_series_ffill(self, session: Session, action: Transaction, end_date: datetime) -> None:
+        """Update the portfolio holdings time series using forward fill (ffill) method."""
         # Get the latest holding entry for this action
         latest_holding = session.query(PortfolioHoldingsTimeSeries).filter(
             PortfolioHoldingsTimeSeries.portfolio_id == action.portfolio_id,
             PortfolioHoldingsTimeSeries.asset_id == action.asset_id,
         ).order_by(PortfolioHoldingsTimeSeries.date.desc()).first()
 
-        # If no previous holding exists, use the action's quantity
         if latest_holding:
             start_date = (latest_holding.date).date()
             date_range = pd.date_range(start=start_date, end=end_date)
             if start_date < end_date and len(date_range) > 1:
-                quantity = latest_holding.quantity 
+                quantity = float(latest_holding.quantity)  # Convert Decimal to float for pandas
                 # Create a DataFrame with all dates in the range
                 df = pd.DataFrame({
                     'date': date_range,
@@ -627,44 +523,27 @@ class DatabaseAccess:
                     'quantity': quantity
                 })
                 records = df.to_dict('records')
+                
+                # Convert back to Decimal for database insertion
+                for record in records:
+                    record['quantity'] = Decimal(str(record['quantity']))
+                
                 stmt = insert(PortfolioHoldingsTimeSeries).values(records)
                 try:
                     session.execute(stmt)
                 except Exception as e:
                     logging.error(f"Error ffill holdings time series: {str(e)}")
-                    logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+                    logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.transaction_datetime}")
                     raise e
 
-    def update_holding_time_series_vectorized(self, session: Session, action: Action, end_date: datetime) -> None:
-        """
-        Update the portfolio holdings time series for a specific action up to the end date using a vectorized approach.
-
-        This method updates or inserts holdings entries for a specific asset in a portfolio
-        from the action date up to the specified end date. It calculates the quantity change
-        based on the action type and applies this change to all relevant dates.
-        Args:
-            session (Session): The SQLAlchemy session for database operations.
-            action (Action): The action object containing portfolio_id, asset_id, date, and quantity information.
-            end_date (datetime): The end date up to which the holdings should be updated.
-
-        Returns:
-            None
-
-        Raises:
-            Exception: If there's an error during the update or insert process.
-
-        Note:
-            This method uses a vectorized approach for better performance when dealing with large datasets.
-            It first attempts to update existing records and then inserts new records if necessary.
-        """
-
-        if action.action_type.name in ('buy', 'dividend'):
+    def update_holding_time_series_vectorized(self, session: Session, action: Transaction, end_date: datetime) -> None:
+        """Update the portfolio holdings time series using a vectorized approach."""
+        if action.transaction_type.name in ('buy', 'dividend'):
             quantity_change = action.quantity
-        elif action.action_type.name == 'sell':
+        elif action.transaction_type.name == 'sell':
             quantity_change = -action.quantity
 
-        start_date = action.date.date()
-        # end_date = end_date.date()
+        start_date = action.transaction_datetime.date()
 
         try:
             # First, update existing records
@@ -705,22 +584,11 @@ class DatabaseAccess:
         except Exception as e:
             session.rollback()
             logging.error(f"Error updating/inserting holdings time series: {str(e)}")
-            logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.date}")
+            logging.error(f"Action details: portfolio_id={action.portfolio_id}, asset_id={action.asset_id}, date={action.transaction_datetime}")
             raise e
 
     def update_holdings_time_series_to_current_day(self, session: Session) -> None:
-        """
-        Update the portfolio holdings time series for all portfolios and assets up to the current day.
-
-        This method finds the last date in the holdings time series for each portfolio-asset combination
-        and fills in any missing dates up to the current day, using the last known quantity.
-
-        Args:
-            session (Session): SQLAlchemy session
-
-        Returns:
-            None
-        """
+        """Update the portfolio holdings time series for all portfolios and assets up to the current day."""
         current_date = datetime.now().date()
 
         # Get the latest date for each portfolio-asset combination
@@ -763,12 +631,31 @@ class DatabaseAccess:
 
         session.commit()
 
+    # ========== Tax Lot Support Methods ==========
+
+    def get_tax_lots_for_portfolio_asset(self, session: Session, portfolio_id: int, asset_id: int, 
+                                        include_closed: bool = False) -> List[TaxLot]:
+        """Get tax lots for a specific portfolio and asset."""
+        query = session.query(TaxLot).filter(
+            TaxLot.portfolio_id == portfolio_id,
+            TaxLot.asset_id == asset_id
+        )
+        
+        if not include_closed:
+            query = query.filter(TaxLot.is_closed == False)
+            
+        return query.order_by(TaxLot.acquisition_date).all()
+
+    def get_tax_lot_transactions_for_transaction(self, session: Session, transaction_id: int) -> List[TaxLotTransaction]:
+        """Get all tax lot transactions for a specific transaction."""
+        return session.query(TaxLotTransaction).filter(
+            TaxLotTransaction.transaction_id == transaction_id
+        ).all()
+
 
 if __name__ == "__main__":
-
     db_access = DatabaseAccess()	
     with session_scope() as session:
         portfolio = db_access.get_portfolio_by_name(session, 'Alexander')
 
-    print('done')
     print('done')

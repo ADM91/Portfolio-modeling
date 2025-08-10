@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 import logging
 
+
 class PortfolioAPIClient:
     """Client for interacting with the Portfolio API"""
     
@@ -49,8 +50,8 @@ class PortfolioAPIClient:
         }
             
         if start_date and end_date:
-            params["start_date"] = start_date
-            params["end_date"] = end_date
+            params["start_transaction_datetime"] = start_date
+            params["end_transaction_datetime"] = end_date
             params.pop("timeframe", None)
             
         return params
@@ -70,8 +71,8 @@ class PortfolioAPIClient:
             return pd.DataFrame()
             
         df = pd.DataFrame(data)
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'])
+        if 'transaction_datetime' in df.columns:
+            df['transaction_datetime'] = pd.to_datetime(df['transaction_datetime'])
         return df
     
     @st.cache_data(ttl=300)
@@ -89,8 +90,8 @@ class PortfolioAPIClient:
             return pd.DataFrame()
             
         df = pd.DataFrame(data)
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'])
+        if 'transaction_datetime' in df.columns:
+            df['transaction_datetime'] = pd.to_datetime(df['transaction_datetime'])
         return df
     
     @st.cache_data(ttl=300)
@@ -108,8 +109,8 @@ class PortfolioAPIClient:
             return pd.DataFrame()
             
         df = pd.DataFrame(data)
-        if 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'])
+        if 'transaction_datetime' in df.columns:
+            df['transaction_datetime'] = pd.to_datetime(df['transaction_datetime'])
         return df
     
     @st.cache_data(ttl=600)  # Cache for 10 minutes

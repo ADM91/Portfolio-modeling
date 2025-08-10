@@ -5,7 +5,7 @@ from typing import List, Dict
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from database.entities import PortfolioHoldingsTimeSeries, Asset, Portfolio, Action
+from database.entities import PortfolioHoldingsTimeSeries, Asset, Portfolio, Transaction
 from database.access import with_session, session_scope, DatabaseAccess
 
 

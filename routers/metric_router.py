@@ -4,7 +4,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from cli import db_update
-from services.metric_service_improved import MetricService
+from services.metric_service import MetricService
 from database.access import DatabaseAccess
 from utils.date_utils import calculate_start_date
 

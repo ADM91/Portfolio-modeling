@@ -1,6 +1,6 @@
 
 import streamlit as st
-from services.portfolio_service import PortfolioHandler
+from services.portfolio_service import PortfolioService
 from config import settings
 
 def main():
@@ -12,34 +12,34 @@ def main():
         value="data/portfolio.xlsx",
         help="Path to your portfolio Excel file"
     )
-    
-    portfolio_handler = PortfolioHandler(excel_path)
-    
+
+    portfolio_service = PortfolioService(excel_path)
+
     menu = ["Dashboard", "Add Activity", "Portfolio Analysis", "Data Visualization"]
     choice = st.sidebar.selectbox("Menu", menu)
     
     if choice == "Dashboard":
-        show_dashboard(portfolio_handler)
+        show_dashboard(portfolio_service)
     elif choice == "Add Activity":
-        add_activity(portfolio_handler)
+        add_activity(portfolio_service)
     elif choice == "Portfolio Analysis":
-        show_portfolio_analysis(portfolio_handler)
+        show_portfolio_analysis(portfolio_service)
     elif choice == "Data Visualization":
-        show_data_visualization(portfolio_handler)
+        show_data_visualization(portfolio_service)
 
-def show_dashboard(portfolio_handler):
+def show_dashboard(portfolio_service):
     # Display summary of all portfolios
     pass
 
-def add_activity(portfolio_handler):
+def add_activity(portfolio_service):
     # Form for adding new activities
     pass
 
-def show_portfolio_analysis(portfolio_handler):
+def show_portfolio_analysis(portfolio_service):
     # Display detailed analysis of selected portfolio
     pass
 
-def show_data_visualization(portfolio_handler):
+def show_data_visualization(portfolio_service):
     # Charts and graphs of portfolio performance
     pass
 

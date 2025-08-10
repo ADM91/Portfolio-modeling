@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 
-class ActionType(Enum):
-    """Types of investment actions that can be performed."""
+class TransactionType(Enum):
+    """Types of investment transactions that can be performed."""
     BUY = "buy"
     SELL = "sell"
     DIVIDEND = "dividend"

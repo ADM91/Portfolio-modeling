@@ -2,6 +2,7 @@
 _junk/*
 _data/
 data/*
+**/deprecated/**
 *.venv
 *.ipynb
 *.xlsx

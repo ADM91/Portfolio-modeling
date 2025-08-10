@@ -6,8 +6,8 @@ from decimal import Decimal
 
 from services.data_acquisition_service import DataAcquisitionService
 from services.data_providers import DataProvider, YFinanceProvider
-from database.access_improved import DatabaseAccess
-from database.entities_improved import Asset, PriceHistory
+from database.access import DatabaseAccess
+from database.entities import Asset, PriceHistory
 from config import assets as config_assets
 
 

@@ -9,7 +9,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from database.access import DatabaseAccess, with_session
-from database.entities_improved import TaxLot, TaxLotTransaction, Action, ActionType
+from database.entities import TaxLot, TaxLotTransaction, Action, ActionType
 
 
 class TaxLotService:

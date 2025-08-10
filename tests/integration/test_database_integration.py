@@ -1,8 +1,8 @@
 import pytest
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from database.entities_improved import *
-from database.access_improved import DatabaseAccess
+from database.entities import *
+from database.access import DatabaseAccess
 
 
 class TestDatabaseIntegration:

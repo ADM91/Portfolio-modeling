@@ -3,8 +3,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime, date
 from decimal import Decimal
-from database.entities_improved import Base, Asset, Portfolio, TransctionType
-from database.access_improved import DatabaseAccess
+from database.entities import Base, Asset, Portfolio, TransctionType
+from database.access import DatabaseAccess
 from config import action_types, assets, portfolios
 
 

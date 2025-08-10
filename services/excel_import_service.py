@@ -19,9 +19,9 @@ class ExcelImportService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
-    def read_actions_from_excel(self, excel_path: str) -> List[Dict]:
+    def read_transactions_from_excel(self, excel_path: str) -> List[Dict]:
         """
-        Read investment actions from an Excel file and return raw data.
+        Read investment transactions from an Excel file and return raw data.
         
         Args:
             excel_path: Path to the Excel file
@@ -34,8 +34,8 @@ class ExcelImportService:
             ValueError: If the Excel file format is invalid
         """
         try:
-            action_df = pd.read_excel(excel_path)
-            self.logger.info(f"Successfully read {len(action_df)} rows from {excel_path}")
+            transaction_df = pd.read_excel(excel_path)
+            self.logger.info(f"Successfully read {len(transaction_df)} rows from {excel_path}")
         except FileNotFoundError:
             self.logger.error(f"Excel file not found: {excel_path}")
             raise
@@ -44,26 +44,26 @@ class ExcelImportService:
             raise ValueError(f"Invalid Excel file format: {e}")
         
         # Validate required columns
-        required_columns = ['Date', 'Portfolio', 'Action', 'Asset', 'Currency', 'Price', 'Quantity']
-        missing_columns = [col for col in required_columns if col not in action_df.columns]
+        required_columns = ['Datetime', 'Portfolio', 'Transaction', 'Asset', 'Currency', 'Price', 'Quantity']
+        missing_columns = [col for col in required_columns if col not in transaction_df.columns]
         if missing_columns:
             raise ValueError(f"Missing required columns: {missing_columns}")
         
-        action_list = []
-        
-        for index, row in action_df.iterrows():
+        transaction_list = []
+
+        for index, row in transaction_df.iterrows():
             try:
                 processed_row = self._process_excel_row(row, index)
                 if processed_row:  # Skip rows that couldn't be processed
-                    action_list.append(processed_row)
+                    transaction_list.append(processed_row)
             except Exception as e:
                 self.logger.error(f"Error processing row {index}: {e}")
                 self.logger.error(f"Row data: {row.to_dict()}")
                 # Continue processing other rows instead of failing completely
                 continue
         
-        self.logger.info(f"Successfully processed {len(action_list)} actions from Excel")
-        return action_list
+        self.logger.info(f"Successfully processed {len(transaction_list)} transactions from Excel")
+        return transaction_list
 
     def _process_excel_row(self, row: pd.Series, row_index: int) -> Optional[Dict]:
         """
@@ -78,9 +78,9 @@ class ExcelImportService:
         """
         try:
             # Parse and validate date
-            date_value = self._parse_date(row['Date'])
-            if date_value is None:
-                self.logger.warning(f"Skipping row {row_index}: Invalid date '{row['Date']}'")
+            datetime_value = self._parse_date(row['Datetime'])
+            if datetime_value is None:
+                self.logger.warning(f"Skipping row {row_index}: Invalid date '{row['Datetime']}'")
                 return None
             
             # Parse numeric values
@@ -90,18 +90,18 @@ class ExcelImportService:
             
             if price is None or quantity is None:
                 return None  # Skip row if critical numeric values are invalid
-            
-            # Validate action type
-            action_type = str(row['Action']).lower().strip()
-            if action_type not in ['buy', 'sell', 'dividend']:
-                self.logger.warning(f"Skipping row {row_index}: Invalid action type '{action_type}'")
+
+            # Validate transaction type
+            transaction_type = str(row['Transaction']).lower().strip()
+            if transaction_type not in ['buy', 'sell', 'dividend']:
+                self.logger.warning(f"Skipping row {row_index}: Invalid transaction type '{transaction_type}'")
                 return None
             
             # Build processed row
             processed_row = {
-                'date': date_value,
+                'transaction_datetime': datetime_value,
                 'portfolio_name': str(row['Portfolio']).strip(),
-                'action_type': action_type,
+                'transaction_type': transaction_type,
                 'asset_code': str(row['Asset']).strip(),
                 'currency_code': str(row['Currency']).strip(),
                 'price': price,
@@ -204,7 +204,7 @@ class ExcelImportService:
             df = pd.read_excel(excel_path)
             
             # Check for required columns
-            required_columns = ['Date', 'Portfolio', 'Action', 'Asset', 'Currency', 'Price', 'Quantity']
+            required_columns = ['Datetime', 'Portfolio', 'Transaction', 'Asset', 'Currency', 'Price', 'Quantity']
             missing_columns = [col for col in required_columns if col not in df.columns]
             if missing_columns:
                 errors.append(f"Missing required columns: {missing_columns}")
@@ -242,11 +242,11 @@ class ExcelImportService:
                 'total_rows': len(df),
                 'columns': list(df.columns),
                 'portfolios': df['Portfolio'].unique().tolist() if 'Portfolio' in df.columns else [],
-                'action_types': df['Action'].unique().tolist() if 'Action' in df.columns else [],
+                'transaction_types': df['Transaction'].unique().tolist() if 'Transaction' in df.columns else [],
                 'assets': df['Asset'].unique().tolist() if 'Asset' in df.columns else [],
-                'date_range': {
-                    'start': df['Date'].min() if 'Date' in df.columns else None,
-                    'end': df['Date'].max() if 'Date' in df.columns else None
+                'datetime_range': {
+                    'start': df['Datetime'].min() if 'Datetime' in df.columns else None,
+                    'end': df['Datetime'].max() if 'Datetime' in df.columns else None
                 }
             }
             

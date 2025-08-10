@@ -16,7 +16,7 @@ router = APIRouter(
 db_access = DatabaseAccess()
 
 @router.get("/assets")
-def get_all_assets():
+async def get_all_assets():
     """Get all available assets for base currency selection"""
     try:
         with session_scope() as session:
@@ -24,7 +24,7 @@ def get_all_assets():
             
             result = []
             for asset in assets:
-                # Categorize assets
+                # This categorization does not belong here, should be defined in database or domain model
                 asset_type = "Currency" if asset.is_currency else "Asset"
                 if asset.ticker.upper() in ["BTC", "ETH", "ADA", "DOT"]:  # Common crypto symbols
                     asset_type = "Cryptocurrency"
@@ -48,7 +48,7 @@ def get_all_assets():
 
 
 @router.get("/portfolios")
-def get_all_portfolios():
+async def get_all_portfolios():
     """Get all available portfolios"""
     try:
         with session_scope() as session:
@@ -68,7 +68,7 @@ def get_all_portfolios():
 
 
 @router.get("/portfolio-assets")
-def get_portfolio_assets(portfolio_ids: List[int] = Query()):
+async def get_portfolio_assets(portfolio_ids: List[int] = Query()):
     """Get assets available in selected portfolios"""
     try:
         if not portfolio_ids:
@@ -86,7 +86,7 @@ def get_portfolio_assets(portfolio_ids: List[int] = Query()):
             
             result = []
             for asset in assets:
-                # Categorize assets
+                # This categorization does not belong here, should be defined in database or domain model
                 asset_type = "Stock/ETF"
                 if asset.is_currency:
                     asset_type = "Currency"

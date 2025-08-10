@@ -19,9 +19,22 @@ class Settings(BaseSettings):
 
     # Logging configuration
     log_level: str = "INFO"
+    log_format: str = "pretty"  # 'pretty' for development, 'json' for production
+    log_file: str = "logs/portfolio_tracker.log"
+    log_max_size: int = 10 * 1024 * 1024  # 10MB
+    log_backup_count: int = 5
+    log_sql_queries: bool = False  # Enable SQL query logging
+    log_performance: bool = True   # Enable performance timing logs
+    log_api_requests: bool = True  # Enable API request/response logging
+    
+    # Component-specific log levels
+    log_level_database: str = "INFO"
+    log_level_services: str = "INFO"
+    log_level_api: str = "INFO"
+    log_level_external: str = "INFO"  # For external API calls
 
     # Path configuration
-    path_actions: str = "data/actions.xlsx"
+    path_actions: str = "_data/test_action_data.xlsx"
     pythonpath: str = ""
 
     model_config = {
@@ -29,13 +42,23 @@ class Settings(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore"  # This allows extra environment variables
     }
+    
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development mode."""
+        return self.debug or self.log_format == "pretty"
+    
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production mode."""
+        return not self.debug and self.log_format == "json"
 
 
 # Global settings instance
 settings = Settings()
 
 # Data configuration - moved from hardcoded lists to structured format
-action_types: List[Dict[str, str]] = [
+transaction_types: List[Dict[str, str]] = [
     {"name": "buy"},
     {"name": "sell"},
     {"name": "dividend"}
